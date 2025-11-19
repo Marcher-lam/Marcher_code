@@ -149,8 +149,8 @@
 
 ```bash
 # 克隆仓库
-git clone https://github.com/你的用户名/你的仓库名.git
-cd 你的仓库名
+git clone https://github.com/Marcher-lam/Marcher_code.git
+cd Marcher_code
 
 # 安装依赖
 pip install -r requirements.txt
