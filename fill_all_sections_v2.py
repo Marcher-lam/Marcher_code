@@ -1,0 +1,269 @@
+import os, re, textwrap
+
+# Keyword categories for detection (expanded)
+REGRESSION_KW = ['回归', 'ridge', 'lasso', 'elasticnet', 'svr', 'polynomial']
+CLASSIFICATION_KW = ['分类', 'logistic', 'svm', 'decisiontree', 'randomforest', 'adaboost', 'gbdt', 'xgboost', 'lightgbm', 'catboost', 'knn', '朴素贝叶斯', 'naivebayes']
+CLUSTERING_KW = ['k-means', 'dbscan', '层次聚类', 'meanshift', 'spectral', 'optics']
+DIMRED_KW = ['pca', 'lda', 'svd', 'nmf', 'lsa', 't-sne', 'umap']
+DEEP_KW = ['神经网络', 'cnn', 'rnn', 'lstm', 'gru', 'transformer', 'gan', 'vae', 'ae', 'bert', 'gpt', 't5', 'bart', 'distilbert', 'albert', 'vit', 'unet', 'resnet', 'efficientnet',
+            'word2vec', 'glove', 'char2vec', 'tf-idf', 'tfidf', 'tf_idf']
+RL_KW = ['dqn', 'ddpg', 'ppo', 'a2c', 'sac', 'td3', 'reinforce', 'sarsa', 'q-learning', 'actor', 'critic']
+
+def detect_category(name):
+    lower = name.lower()
+    for kw in REGRESSION_KW:
+        if kw in lower:
+            return 'regression'
+    for kw in CLASSIFICATION_KW:
+        if kw in lower:
+            return 'classification'
+    for kw in CLUSTERING_KW:
+        if kw in lower:
+            return 'clustering'
+    for kw in DIMRED_KW:
+        if kw in lower:
+            return 'dimred'
+    for kw in DEEP_KW:
+        if kw in lower:
+            return 'deep'
+    for kw in RL_KW:
+        if kw in lower:
+            return 'rl'
+    return 'generic'
+
+# ---------- Content generators ----------
+
+def sec1(name):
+    return f"\n该章节介绍 **{name}** 的基本概念、历史背景以及核心定位。\n"
+
+def sec2(name):
+    return f"\n核心原理概述：解释 **{name}** 的工作机制、关键公式或模型结构。\n"
+
+def sec3(name):
+    return f"\n数学推导：提供 **{name}** 的主要公式推导步骤和关键定理。\n"
+
+def sec4(name, cat):
+    if cat == 'regression':
+        txt = "训练过程通常采用最小二乘或梯度下降优化目标函数 J(θ)。\n步骤：1. 初始化参数 θ；2. 计算预测 ŷ = Xθ 并求损失；3. 计算梯度 ∇J 并更新 θ；4. 重复直至收敛。"
+    elif cat == 'classification':
+        txt = "分类模型训练使用交叉熵损失。步骤：1. 初始化参数；2. 前向计算概率；3. 计算交叉熵；4. 反向传播更新；5. 重复直至收敛。"
+    elif cat == 'clustering':
+        txt = "聚类迭代更新簇中心或标签。步骤：1. 随机初始化簇中心；2. 计算样本距离并分配；3. 更新中心为均值；4. 重复直至不变。"
+    elif cat == 'dimred':
+        txt = "降维方法通过矩阵分解或随机映射保留主要结构。步骤：1. 构造矩阵 X；2. 计算协方差或随机投影；3. 取前 k 主成分；4. 投影得到低维表示。"
+    elif cat == 'deep':
+        txt = "深度模型训练采用 minibatch SGD（或 Adam）。步骤：1. 构建网络并初始化；2. 前向传播得到输出；3. 计算损失；4. 自动微分得到梯度并更新参数；5. 迭代若干 epoch；6. 使用验证集 early‑stop。"
+    elif cat == 'rl':
+        txt = "强化学习通过交互环境采样轨迹并依据奖励更新策略。步骤：1. 初始化策略/价值网络；2. 在环境中采样；3. 计算 TD‑error 或策略梯度；4. 更新网络；5. 重复直至收敛。"
+    else:
+        txt = "训练过程概述：依据具体实现选择合适的优化方式并迭代更新模型参数。"
+    return f"\n{txt}\n"
+
+def sec5(name, cat):
+    if cat in ('regression', 'classification'):
+        return "\n常见应用：\\n- 金融风险评估\\n- 医疗诊断\\n- 销售预测\\n- 文本情感分类\\n"
+    if cat == 'clustering':
+        return "\n典型场景：\\n- 客户细分\\n- 图像分割\\n- 异常检测\\n- 文档聚类\\n"
+    if cat == 'dimred':
+        return "\n主要用于：\\n- 可视化高维数据\\n- 降噪压缩\\n- 加速后续模型\\n- 相似度搜索\\n"
+    if cat == 'deep':
+        return "\n广泛应用于：\\n- 计算机视觉（分类、检测）\\n- NLP（翻译、生成）\\n- 语音识别\\n- 推荐系统\\n"
+    if cat == 'rl':
+        return "\n适用领域：\\n- 游戏智能体\\n- 自动驾驶\\n- 机器人控制\\n- 金融交易\\n"
+    return "\n通用应用场景：数据预测、模式识别、决策支持等。\n"
+
+def sec6(name, cat):
+    if cat in ('regression', 'classification'):
+        return "\n优点：解释性强、实现简单、对小数据有效。\\n缺点：线性假设限制、对非线性关系表现差，需要特征工程。\n"
+    if cat == 'clustering':
+        return "\n优势：无需标签、发现潜在结构。\\n局限：对噪声敏感、需事先指定簇数或距离。\n"
+    if cat == 'dimred':
+        return "\n优点：降维加速、可视化。\\n缺点：信息损失、对噪声敏感。\n"
+    if cat == 'deep':
+        return "\n优势：强大表达能力、端到端学习。\\n缺点：需大量数据算力、难解释。\n"
+    if cat == 'rl':
+        return "\n优势：可学习复杂策略、无需明确模型。\\n挑战：采样效率低、奖励稀疏、收敛不稳。\n"
+    return "\n请根据具体算法自行补充优缺点分析。\n"
+
+# ---------- Specific generators for sections 7‑14 ----------
+
+def lib_impl(name, cat):
+    if cat == 'regression':
+        return textwrap.dedent("""
+        ```python
+        # scikit-learn 回归示例（LinearRegression）
+        from sklearn.linear_model import LinearRegression
+        model = LinearRegression()
+        model.fit(X_train, y_train)
+        print('R^2:', model.score(X_test, y_test))
+        ```
+        """)
+    if cat == 'classification':
+        return textwrap.dedent("""
+        ```python
+        # scikit-learn 分类示例（LogisticRegression）
+        from sklearn.linear_model import LogisticRegression
+        model = LogisticRegression(max_iter=200)
+        model.fit(X_train, y_train)
+        print('Accuracy:', model.score(X_test, y_test))
+        ```
+        """)
+    if cat == 'clustering':
+        return textwrap.dedent("""
+        ```python
+        # scikit-learn 聚类示例（KMeans）
+        from sklearn.cluster import KMeans
+        model = KMeans(n_clusters=3, random_state=42)
+        model.fit(X)
+        print('Cluster centers:', model.cluster_centers_)
+        ```
+        """)
+    if cat == 'dimred':
+        return textwrap.dedent("""
+        ```python
+        # scikit-learn 降维示例（PCA）
+        from sklearn.decomposition import PCA
+        pca = PCA(n_components=2)
+        X_reduced = pca.fit_transform(X)
+        print('Explained variance:', pca.explained_variance_ratio_)
+        ```
+        """)
+    if cat == 'deep':
+        # embedding-specific fallback for word2vec / glove etc.
+        if 'word2vec' in name.lower() or 'glove' in name.lower() or 'char2vec' in name.lower() or 'tf-idf' in name.lower() or 'tfidf' in name.lower():
+            return textwrap.dedent(f"""
+            ```python
+            # 使用 gensim 实现 {name}\nfrom gensim.models import {name.title().replace('-', '')}\nmodel = {name.title().replace('-', '')}(...)
+            ```
+            """)
+        return textwrap.dedent("""
+        ```python
+        # PyTorch 示例（全连接网络）
+        import torch
+        import torch.nn as nn
+        class Net(nn.Module):
+            def __init__(self, in_dim, hidden, out_dim):
+                super().__init__()
+                self.fc1 = nn.Linear(in_dim, hidden)
+                self.relu = nn.ReLU()
+                self.fc2 = nn.Linear(hidden, out_dim)
+            def forward(self, x):
+                return self.fc2(self.relu(self.fc1(x)))
+        model = Net(100, 50, 10)
+        print(model)
+        ```
+        """)
+    if cat == 'rl':
+        return textwrap.dedent("""
+        ```python
+        # OpenAI Gym 示例（CartPole）\nimport gym\nenv = gym.make('CartPole-v1')\nobs = env.reset()\nfor _ in range(200):\n    action = env.action_space.sample()\n    obs, reward, done, info = env.step(action)\n    env.render()\n    if done: break\nenv.close()\n        ```
+        """)
+    return "\n```python\n# TODO: 添加库实现代码\n```"
+
+def hand_impl(name, cat):
+    class_name = re.sub(r'[^A-Za-z0-9]', '', name)
+    if cat in ('regression', 'classification'):
+        return textwrap.dedent(f"""
+        ```python
+        # 手工实现模板\nimport numpy as np\n\nclass {class_name}:\n    def __init__(self, *args, **kwargs):\n        pass\n    def fit(self, X, y):\n        # TODO: 实现训练过程\n        pass\n    def predict(self, X):\n        # TODO: 实现预测过程\n        return np.zeros(len(X))\n        ```
+        """)
+    if cat == 'deep':
+        return textwrap.dedent(f"""
+        ```python
+        # 手工实现简化深度网络（numpy）\nimport numpy as np\n\nclass SimpleNN:\n    def __init__(self, in_dim, hidden, out_dim):\n        self.W1 = np.random.randn(in_dim, hidden)\n        self.b1 = np.zeros(hidden)\n        self.W2 = np.random.randn(hidden, out_dim)\n        self.b2 = np.zeros(out_dim)\n    def forward(self, x):\n        h = np.maximum(0, x @ self.W1 + self.b1)\n        return h @ self.W2 + self.b2\n        ```
+        """)
+    return "\n```python\n# TODO: 添加手工实现代码\n```"
+
+def visualization(name, cat):
+    if cat in ('regression', 'classification'):
+        return textwrap.dedent(f"""
+        ```python
+        # 可视化示例（散点）\nimport matplotlib.pyplot as plt\nimport numpy as np\nX = np.random.randn(200, 2)\ny = np.random.randint(0, 2, 200)\nplt.scatter(X[:,0], X[:,1], c=y, cmap='viridis')\nplt.title('{name} 可视化示例')\nplt.show()\n        ```
+        """)
+    if cat == 'dimred':
+        return textwrap.dedent(f"""
+        ```python
+        # 降维后可视化（2D）\nimport matplotlib.pyplot as plt\nimport numpy as np\nX_reduced = np.random.randn(200, 2)\nplt.scatter(X_reduced[:,0], X_reduced[:,1], cmap='plasma')\nplt.title('{name} 降维可视化')\nplt.show()\n        ```
+        """)
+    if cat == 'deep':
+        return textwrap.dedent(f"""
+        ```python
+        # 特征图可视化示例\nimport matplotlib.pyplot as plt\nimport numpy as np\nfeature = np.random.rand(8, 8)\nplt.imshow(feature, cmap='gray')\nplt.title('{name} 特征图')\nplt.show()\n        ```
+        """)
+    return "\n- TODO: 添加可视化示例\n"
+
+def evaluation(name, cat):
+    metric_map = {
+        'regression': 'mean_squared_error',
+        'classification': 'accuracy_score',
+        'clustering': 'silhouette_score',
+        'dimred': 'explained_variance_score',
+        'rl': 'episode_reward',
+    }
+    metric = metric_map.get(cat, 'accuracy_score')
+    return textwrap.dedent(f"""
+        ```python
+        # 评估示例\nfrom sklearn.metrics import {metric}\n# y_true, y_pred / X, labels 需自行准备\n# print('{metric}:', {metric}(y_true, y_pred))\n        ```
+        """)
+
+def common_issues():
+    return textwrap.dedent("""
+    - 未对特征进行标准化或归一化导致模型不收敛。\n- 超参数（学习率、正则化、层数）需要调参。\n- 过拟合：模型在训练集表现好但在测试集表现差。\n- 计算资源：深度模型常需 GPU 加速。\n""")
+
+def learning_summary(name):
+    return f"**学习要点**：{name} 的核心思想是 …（请根据实际算法补充）。掌握其数学推导、实现细节以及适用场景是后续深入学习的基础。"
+
+def exercises(name):
+    return textwrap.dedent(f"""
+    1. 手动实现 {name} 的核心步骤并在合成数据上验证。\n2. 使用不同库（如 scikit‑learn 与 PyTorch）实现，并比较训练时间与精度。\n3. 设计可视化函数，展示 {name} 在不同超参数下的表现。\n""")
+
+def learning_path():
+    return textwrap.dedent("""
+    - 先掌握线性模型（线性回归、逻辑回归）→\n- 再学习树模型（决策树、随机森林、XGBoost）→\n- 深入深度学习模型（CNN、Transformer、GAN）→\n- 进阶章节：自监督学习、强化学习、生成模型等前沿方向。\n""")
+
+SECTION_FUNCS = {
+    1: lambda n, c: sec1(n),
+    2: lambda n, c: sec2(n),
+    3: lambda n, c: sec3(n),
+    4: lambda n, c: sec4(n, c),
+    5: lambda n, c: sec5(n, c),
+    6: lambda n, c: sec6(n, c),
+    7: lib_impl,
+    8: hand_impl,
+    9: visualization,
+    10: evaluation,
+    11: lambda n, c: common_issues(),
+    12: lambda n, c: learning_summary(n),
+    13: lambda n, c: exercises(n),
+    14: lambda n, c: learning_path(),
+}
+
+def replace_section(content, num, name, cat):
+    pattern = rf'(##\s+{num}\.\s+[^\n]*\n)(.*?)(?=\n##\s+\d+\.|\Z)'
+    new_body = SECTION_FUNCS[num](name, cat)
+    replacement = rf"\1\n{new_body}\n"
+    new_content, cnt = re.subn(pattern, replacement, content, flags=re.DOTALL)
+    return new_content, cnt
+
+def process_file(path):
+    with open(path, 'r', encoding='utf-8') as f:
+        content = f.read()
+    name = os.path.splitext(os.path.basename(path))[0]
+    cat = detect_category(name)
+    changed = False
+    for num in range(1, 15):
+        content, cnt = replace_section(content, num, name, cat)
+        if cnt:
+            changed = True
+    if changed:
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write(content)
+
+def main():
+    alg_dir = 'algorithm_knowledge_base/algorithms'
+    for fname in os.listdir(alg_dir):
+        if fname.endswith('.md'):
+            process_file(os.path.join(alg_dir, fname))
+
+if __name__ == '__main__':
+    main()

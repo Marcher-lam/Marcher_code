@@ -1,0 +1,1026 @@
+# SGD 学习文档
+
+## 1. 算法基础认知
+
+SGD（Stochastic Gradient Descent，随机梯度下降）是深度学习中最重要的基础优化算法之一，也是理解其他优化算法的基础。与使用全部数据计算梯度的批量梯度下降不同，SGD每次使用单个或少量样本来估计梯度，这使得它能够在超大规模数据集上高效运行。
+
+SGD的核心思想是通过迭代更新参数来最小化损失函数。每次更新时，沿着损失函数梯度的负方向（即函数下降最快的方向）移动一步。更新的步长由学习率（learning rate）控制。这种方法简单而直观，是优化理论和实践的基石。
+
+虽然SGD看起来简单，但它有几个重要的变体和改进：标准的SGD每次只用一个样本；Mini-batch SGD每次使用少量样本（通常是16-256），在稳定性和效率之间取得平衡；带动量的SGD增加了动量项，帮助加速收敛并减少震荡；Nesterov动量是一种改进的动量方法，先预测再修正。这些变体使SGD适应各种训练场景。
+
+SGD之所以重要，不仅因为它直接用于训练，还因为它是理解其他优化算法的基础。Adam、RMSprop等高级优化器都是在SGD框架基础上发展而来的。理解SGD的工作原理对于深入理解优化算法至关重要。
+
+## 2. 核心原理
+
+### 2.1 梯度下降基本原理
+
+在数学上，给定一个可微损失函数L(θ)，梯度下降通过以下更新规则迭代优化参数：
+
+```
+θ_t+1 = θ_t - α * ∇L(θ_t)
+```
+
+其中α是学习率（step size），∇L(θ_t)是损失函数在θ_t处的梯度。梯度的方向是函数增大的方向，因此减去梯度使我们沿着函数值下降的方向移动。
+
+### 2.2 随机梯度估计
+
+使用全部数据的梯度需要大量计算，对于大规模数据集效率很低。SGD通过使用随机采样的样本来近似梯度：
+
+```
+g = ∇L_i(θ)
+∇L(θ) ≈ g
+```
+
+其中L_i是第i个样本的损失。这种近似在数学上是合理的，因为随机采样的期望等于真实梯度：
+
+```
+E[g] = ∇L(θ)
+```
+
+### 2.3 Mini-batch SGD
+
+Mini-batch SGD是实际中最常用的变体，每次使用b个样本：
+
+```
+g = (1/b) Σ_i=1^b ∇L_i(θ)
+```
+
+这种设计有几个优点：梯度估计方差小于单个样本；可以充分利用GPU并行计算；在大规模和小型GPU内存之间取得平衡。
+
+### 2.4 动量
+
+动量是一种加速SGD的方法，模拟物理中的惯性：
+
+```
+v_t = β * v_{t-1} + (1-β) * g
+θ_t = θ_{t-1} - α * v_t
+```
+
+其中β是动量系数（通常0.9），v是速度。动量帮助：加速收敛；在狭窄山谷中减少震荡；跳出局部最小值。
+
+### 2.5 Nesterov动量
+
+Nesterov动量是一种改进的动量方法，先"看"再行动：
+
+```
+v_t = β * v_{t-1} + (1-β) * ∇L(θ_{t-1} - α * β * v_{t-1})
+θ_t = θ_{t-1} - α * v_t
+```
+
+这种方法在实践中比标准动量更快收敛，尤其是对于深层网络。
+
+## 3. 数学公式与推导
+
+### 3.1 标准SGD更新
+
+对于参数θ，损失函数L(θ)，单次SGD更新为：
+
+```
+θ_{k+1} = θ_k - α_k * ∇L(θ_k)
+```
+
+其中α_k是第k次迭代的学习率。
+
+### 3.2 收敛性分析
+
+对于凸函数，使用固定学习率α，SGD的收敛性可以证明：
+
+```
+L(θ*) - L(θ_k) ≤ O(1/√k) + O(α²)
+```
+
+这意味着随着迭代增加，损失会下降到最优损失附近的一个邻域内。学习率调度可以进一步改善收敛。
+
+### 3.3 随机梯度期望
+
+假设样本i是从数据集中均匀随机采样的，那么随机梯度的期望等于真实梯度：
+
+```
+E[∇L_i(θ)] = (1/n) Σ_j ∇L_j(θ) = ∇L(θ)
+```
+
+这是SGD能够收敛的数学基础。
+
+### 3.4 带动量的SGD
+
+设v_0=0，动量更新为：
+
+```
+v_k = β * v_{k-1} + (1-β) * ∇L(θ_k)
+θ_{k+1} = θ_k - α * v_k
+```
+
+展开后可以看做是对过去梯度的指数加权平均：
+
+```
+θ_{k+1} = θ_k - α * Σ_i=0^k β^i * ∇L(θ_{k-i})
+```
+
+### 3.5 学习率调度
+
+学习率调度可以加速收敛：
+
+- **固定衰减**：α_k = α_0 / (1 + k * d)
+- **指数衰减**：α_k = α_0 * exp(-k * d)
+- **余弦退火**：α_k = α_min + (α_max - α_min) * (1 + cos(k/T * π)) / 2
+- **Warmup**：前m步从α_0线性增加到α_max
+
+## 4. 训练过程讲解
+
+### 4.1 训练流程
+
+1. **初始化参数**：随机初始化或使用预训练权重
+2. **迭代更新**：
+   - 采样mini-batch数据
+   - 计算损失和梯度
+   - 更新参数
+3. **学习率调度**（可选）：根据epoch调整学习率
+4. **重复**：重复直到收敛
+
+### 4.2 超参数设置
+
+- **学习率α**：0.01-0.1常用，取决于数据规模
+- **动量β**：0.9常用
+- **批量大小b**：16-256常用，GPU内存决定
+- **迭代次数**：根据收敛情况
+
+### 4.3 实现技巧
+
+1. **梯度裁剪**：防止梯度爆炸
+2. **参数平均**：测试时使用最后几个检查点的平均
+3. **动量调度**：后期减少动量加速收敛
+4. **数据增强**：减少过拟合
+
+### 4.4 实际应用
+
+1. **图像分类**：SGD是ResNet等网络的标准优化器
+2. **语言模型**：GPT中使用SGD with momentum
+3. **目标检测**： Faster R-CNN等使用SGD
+
+## 5. 应用场景
+
+### 5.1 大规模数据训练
+
+当数据量非常大时，SGD是唯一可行的选择：
+
+- 无法一次加载全部数据到内存
+- 使用mini-batch处理任意规模数据
+- 每次迭代只计算部分数据
+
+### 5.2 精密调参场景
+
+当需要精确控制训练过程时，SGD更透明：
+
+- 学习率直接控制更新步长
+- 动量效果可预测
+- 便于分析训练动态
+
+### 5.3 竞赛和研究中
+
+许多竞赛获胜模型使用SGD：
+
+- Kaggle图像分类竞赛
+- NLP预训练模型
+- 目标检测模型
+
+### 5.4 其他应用
+
+1. **回归分析**：线性回归、逻辑回归
+2. **神经网络训练**：各种深度学习模型
+3. **强化学习**：policy gradient
+
+### 5.5 与其他技术结合
+
+- **数据增强**：提升泛化能力
+- **Batch Normalization**：稳定训练
+- **学习率调度**：加速收敛
+
+## 6. 优缺点分析
+
+### 6.1 优点
+
+1. **简单**：算法简单易理解
+2. **高效**：每次只处理少量数据
+3. **通用**：适用于各种模型
+4. **可预测**：训练动态透明
+5. **收敛稳定**：收敛性理论完善
+
+### 6.2 缺点
+
+1. **收敛慢**：需要更多迭代
+2. **学习率敏感**：需要仔细调参
+3. **可能陷入局部最小值**
+4. **对特征缩放敏感**
+
+### 6.3 注意事项
+
+1. **特征缩放**：需要数据预处理
+2. **学习率选择**：太大不稳定，太小收敛慢
+3. **局部最小值**：复杂任务可能有多个局部最小值
+
+## 7. 调库实现（PyTorch完整代码）
+
+```python
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import DataLoader, TensorDataset
+import numpy as np
+import matplotlib.pyplot as plt
+
+torch.manual_seed(42)
+np.random.seed(42)
+
+class SimpleNet(nn.Module):
+    def __init__(self, input_dim, hidden_dim, output_dim):
+        super(SimpleNet, self).__init__()
+        self.fc1 = nn.Linear(input_dim, hidden_dim)
+        self.fc2 = nn.Linear(hidden_dim, hidden_dim)
+        self.fc3 = nn.Linear(hidden_dim, output_dim)
+        self.relu = nn.ReLU()
+    
+    def forward(self, x):
+        x = self.relu(self.fc1(x))
+        x = self.relu(self.fc2(x))
+        x = self.fc3(x)
+        return x
+
+def generate_data(n_samples=1000, input_dim=20, noise=0.1):
+    X = np.random.randn(n_samples, input_dim)
+    true_weights = np.random.randn(input_dim)
+    y = X @ true_weights + noise * np.random.randn(n_samples)
+    n_train = int(0.7 * n_samples)
+    return X[:n_train], y[:n_train], X[n_train:], y[n_train:]
+
+def train_with_sgd(variant, X_train, y_train, X_val, y_val, epochs=100, lr=0.01, batch_size=64):
+    X_train_t = torch.FloatTensor(X_train)
+    y_train_t = torch.FloatTensor(y_train).view(-1, 1)
+    X_val_t = torch.FloatTensor(X_val)
+    y_val_t = torch.FloatTensor(y_val).view(-1, 1)
+    
+    train_dataset = TensorDataset(X_train_t, y_train_t)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    
+    model = SimpleNet(X_train.shape[1], 64, 1)
+    
+    if variant == 'SGD':
+        optimizer = optim.SGD(model.parameters(), lr=lr)
+    elif variant == 'SGD_momentum':
+        optimizer = optim.SGD(model.parameters(), lr=lr, momentum=0.9)
+    elif variant == 'SGD_nesterov':
+        optimizer = optim.SGD(model.parameters(), lr=lr, momentum=0.9, nesterov=True)
+    elif variant == 'Adam':
+        optimizer = optim.Adam(model.parameters(), lr=lr)
+    
+    criterion = nn.MSELoss()
+    
+    train_losses = []
+    val_losses = []
+    
+    for epoch in range(epochs):
+        model.train()
+        for batch_X, batch_y in train_loader:
+            optimizer.zero_grad()
+            output = model(batch_X)
+            loss = criterion(output, batch_y)
+            loss.backward()
+            optimizer.step()
+        
+        model.eval()
+        with torch.no_grad():
+            train_pred = model(X_train_t)
+            val_pred = model(X_val_t)
+            train_loss = criterion(train_pred, y_train_t).item()
+            val_loss = criterion(val_pred, y_val_t).item()
+        
+        train_losses.append(train_loss)
+        val_losses.append(val_loss)
+    
+    return train_losses, val_losses
+
+def compare_sgd_variants():
+    X_train, y_train, X_val, y_val = generate_data()
+    
+    print("=" * 50)
+    print("Comparing SGD Variants")
+    print("=" * 50)
+    
+    variants = ['SGD', 'SGD_momentum', 'SGD_nesterov', 'Adam']
+    colors = {'SGD': 'blue', 'SGD_momentum': 'green', 'SGD_nesterov': 'red', 'Adam': 'purple'}
+    
+    plt.figure(figsize=(10, 6))
+    
+    for variant in variants:
+        train_losses, val_losses = train_with_sgd(variant, X_train, y_train, X_val, y_val)
+        label_name = variant.replace('SGD_', 'SGD+')
+        plt.plot(val_losses, label=label_name, color=colors[variant], linewidth=2)
+        print(f"{variant}: Final Val Loss={val_losses[-1]:.4f}")
+    
+    plt.xlabel('Epoch')
+    plt.ylabel('Validation Loss')
+    plt.title('SGD Variant Comparison')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.savefig('sgd_comparison.png', dpi=150)
+    plt.show()
+
+def plot_learning_rate_effect():
+    torch.manual_seed(42)
+    
+    def train_with_lr(lr):
+        model = nn.Sequential(
+            nn.Linear(20, 64),
+            nn.ReLU(),
+            nn.Linear(64, 1)
+        )
+        
+        X = torch.randn(500, 20)
+        y = X @ torch.randn(20, 1) + torch.randn(500, 1) * 0.1
+        
+        optimizer = optim.SGD(model.parameters(), lr=lr, momentum=0.9)
+        criterion = nn.MSELoss()
+        
+        losses = []
+        for _ in range(100):
+            optimizer.zero_grad()
+            loss = criterion(model(X), y)
+            loss.backward()
+            optimizer.step()
+            losses.append(loss.item())
+        
+        return losses[-1]
+    
+    lrs = [0.001, 0.005, 0.01, 0.05, 0.1, 0.5]
+    final_losses = [train_with_lr(lr) for lr in lrs]
+    
+    plt.figure(figsize=(10, 6))
+    plt.semilogx(lrs, final_losses, 'o-', linewidth=2)
+    plt.xlabel('Learning Rate')
+    plt.ylabel('Final Loss')
+    plt.title('SGD Learning Rate Effect')
+    plt.grid(True, alpha=0.3)
+    plt.savefig('sgd_lr.png', dpi=150)
+    plt.show()
+    
+    print(f"Best LR: {lrs[np.argmin(final_losses)]}")
+    print(f"Best Final Loss: {min(final_losses):.4f}")
+
+def visualize_momentum_visualization():
+    X = np.linspace(-10, 10, 100)
+    Y = X ** 2
+    
+    def sgd_path(x0, alpha, beta, n_steps):
+        x = x0
+        v = 0
+        path = [x]
+        for _ in range(n_steps):
+            grad = 2 * x
+            v = beta * v + (1 - beta) * grad
+            x = x - alpha * v
+            path.append(x)
+        return path
+    
+    plt.figure(figsize=(10, 6))
+    plt.plot(X, Y, 'b-', linewidth=2, label='Loss Surface: y=x²')
+    
+    for beta, color in [(0, 'red'), (0.5, 'green'), (0.9, 'orange')]:
+        path = sgd_path(x0=-8, alpha=0.1, beta=beta, n_steps=20)
+        plt.plot(path, [p**2 for p in path], f'{color[0]}--', linewidth=1.5, label=f'Momentum β={beta}')
+    
+    plt.xlabel('x')
+    plt.ylabel('Loss = x²')
+    plt.title('SGD with Different Momentum')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.savefig('sgd_momentum.png', dpi=150)
+    plt.show()
+
+if __name__ == "__main__":
+    compare_sgd_variants()
+    plot_learning_rate_effect()
+    visualize_momentum_visualization()
+```
+
+## 8. 手工代码实现（NumPy/PyTorch）
+
+### 8.1 NumPy实现
+
+```python
+import numpy as np
+
+class SGDOptimizer:
+    def __init__(self, parameters, lr=0.01, momentum=0.0, nesterov=False):
+        self.parameters = parameters
+        self.lr = lr
+        self.momentum = momentum
+        self.nesterov = nesterov
+        
+        if momentum > 0:
+            self.velocity = [np.zeros_like(p) for p in parameters]
+    
+    def step(self, gradients):
+        if self.momentum > 0:
+            for i, (p, g) in enumerate(zip(self.parameters, gradients)):
+                if self.nesterov:
+                    v = self.momentum * self.velocity[i] + (1 - self.momentum) * g
+                    v = self.momentum * v + (1 - self.momentum) * g
+                else:
+                    v = self.momentum * self.velocity[i] + (1 - self.momentum) * g
+                    self.velocity[i] = v
+                p -= self.lr * v
+        else:
+            for p, g in zip(self.parameters, gradients):
+                p -= self.lr * g
+        
+        return self.parameters
+
+class FullyConnected:
+    def __init__(self, input_dim, output_dim):
+        self.weights = np.random.randn(input_dim, output_dim) * 0.01
+        self.bias = np.zeros(output_dim)
+        self.input_cache = None
+    
+    def forward(self, x):
+        self.input_cache = x
+        return x @ self.weights + self.bias
+    
+    def backward(self, grad_output):
+        batch_size = grad_output.shape[0]
+        grad_weights = self.input_cache.T @ grad_output / batch_size
+        grad_bias = np.sum(grad_output, axis=0) / batch_size
+        grad_input = grad_output @ self.weights.T
+        return grad_weights, grad_bias, grad_input
+
+def relu(x):
+    return np.maximum(0, x)
+
+def relu_derivative(x):
+    return (x > 0).astype(float)
+
+class ManualSGDNet:
+    def __init__(self, input_dim, hidden_dim, output_dim, lr=0.01, momentum=0.9):
+        self.fc1 = FullyConnected(input_dim, hidden_dim)
+        self.fc2 = FullyConnected(hidden_dim, hidden_dim)
+        self.fc3 = FullyConnected(hidden_dim, output_dim)
+        
+        self.parameters = [
+            self.fc1.weights, self.fc1.bias,
+            self.fc2.weights, self.fc2.bias,
+            self.fc3.weights, self.fc3.bias
+        ]
+        
+        self.optimizer = SGDOptimizer(self.parameters, lr=lr, momentum=momentum)
+        self.cache = {}
+    
+    def forward(self, x):
+        out = relu(self.fc1.forward(x))
+        self.cache['fc1_out'] = out
+        out = relu(self.fc2.forward(out))
+        self.cache['fc2_out'] = out
+        out = self.fc3.forward(out)
+        return out
+    
+    def train_step(self, x, y):
+        output = self.forward(x)
+        loss = np.mean((output - y) ** 2)
+        
+        grad = 2 * (output - y) / x.shape[0]
+        
+        gw3, gb3, grad = self.fc3.backward(grad)
+        
+        out = self.cache['fc2_out']
+        grad = grad * relu_derivative(out)
+        gw2, gb2, grad = self.fc2.backward(grad)
+        
+        out = self.cache['fc1_out']
+        grad = grad * relu_derivative(out)
+        gw1, gb1, _ = self.fc1.backward(grad)
+        
+        gradients = [gw1, gb1, gw2, gb2, gw3, gb3]
+        self.parameters = self.optimizer.step(gradients)
+        
+        return loss
+
+def train_manual_sgd():
+    np.random.seed(42)
+    X = np.random.randn(1000, 20)
+    y = X @ np.random.randn(20) + 0.1 * np.random.randn(1000)
+    
+    train_size = 700
+    X_train, y_train = X[:train_size], y[:train_size]
+    X_val, y_val = X[train_size:], y[train_size:]
+    
+    model = ManualSGDNet(20, 64, 1, lr=0.01, momentum=0.9)
+    
+    train_losses = []
+    val_losses = []
+    
+    for epoch in range(100):
+        indices = np.random.permutation(len(X_train))
+        train_loss = 0.0
+        for i in range(0, len(X_train), 32):
+            batch_indices = indices[i:i+32]
+            loss = model.train_step(X_train[batch_indices], y_train[batch_indices])
+            train_loss += loss
+        train_loss /= (len(X_train) // 32)
+        
+        val_pred = model.forward(X_val)
+        val_loss = np.mean((val_pred - y_val) ** 2)
+        
+        train_losses.append(train_loss)
+        val_losses.append(val_loss)
+        
+        if (epoch + 1) % 20 == 0:
+            print(f"Epoch {epoch+1}: Train Loss={train_loss:.4f}, Val Loss={val_loss:.4f}")
+    
+    return train_losses, val_losses
+
+if __name__ == "__main__":
+    print("Training with manual SGD implementation:")
+    train_losses, val_losses = train_manual_sgd()
+```
+
+### 8.2 PyTorch手动实现
+
+```python
+import torch
+import torch.nn as nn
+import torch.optim as optim
+
+class ManualSGD(torch.optim.Optimizer):
+    def __init__(self, params, lr=0.01, momentum=0.0, nesterov=False):
+        defaults = {
+            'lr': lr,
+            'momentum': momentum,
+            'nesterov': nesterov
+        }
+        super(ManualSGD, self).__init__(params, defaults)
+    
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            loss = closure()
+        
+        for group in self.param_groups:
+            for p in group['params']:
+                if p.grad is None:
+                    continue
+                
+                grad = p.grad.data
+                
+                if group['momentum'] > 0:
+                    state = self.state[p]
+                    if len(state) == 0:
+                        state['velocity'] = torch.zeros_like(p.data)
+                    
+                    velocity = state['velocity']
+                    
+                    if group['nesterov']:
+                        dampened_grad = group['momentum'] * velocity + (1 - group['momentum']) * grad
+                        update = group['momentum'] * velocity + (1 - group['momentum']) * grad
+                    else:
+                        update = group['momentum'] * velocity + (1 - group['momentum']) * grad
+                        dampened_grad = update
+                    
+                    velocity.mul_(group['momentum']).add_(grad, alpha=1 - group['momentum'])
+                    p.data.add_(dampened_grad, alpha=-group['lr'])
+                else:
+                    p.data.add_(grad, alpha=-group['lr'])
+        
+        return loss
+
+class SimpleNet(nn.Module):
+    def __init__(self):
+        super(SimpleNet, self).__init__()
+        self.fc1 = nn.Linear(20, 64)
+        self.fc2 = nn.Linear(64, 64)
+        self.fc3 = nn.Linear(64, 1)
+    
+    def forward(self, x):
+        x = torch.relu(self.fc1(x))
+        x = torch.relu(self.fc2(x))
+        x = self.fc3(x)
+        return x
+
+def compare_sgd_vs_pytorch():
+    torch.manual_seed(42)
+    
+    model_manual = SimpleNet()
+    model_pytorch = SimpleNet()
+    
+    for p_manual, p_pytorch in zip(model_manual.parameters(), model_pytorch.parameters()):
+        p_manual.data.copy_(p_pytorch.data)
+    
+    X = torch.randn(32, 20)
+    y = torch.randn(32, 1)
+    
+    optimizer_manual = ManualSGD(model_manual.parameters(), lr=0.01, momentum=0.9)
+    optimizer_pytorch = optim.SGD(model_pytorch.parameters(), lr=0.01, momentum=0.9)
+    
+    criterion = nn.MSELoss()
+    
+    for _ in range(10):
+        optimizer_manual.zero_grad()
+        loss_manual = criterion(model_manual(X), y)
+        loss_manual.backward()
+        optimizer_manual.step()
+        
+        optimizer_pytorch.zero_grad()
+        loss_pytorch = criterion(model_pytorch(X), y)
+        loss_pytorch.backward()
+        optimizer_pytorch.step()
+    
+    print("Manual SGD params:", list(model_manual.parameters())[0][:3])
+    print("PyTorch SGD params:", list(model_pytorch.parameters())[0][:3])
+    print("Close:", torch.allclose(
+        list(model_manual.parameters())[0],
+        list(model_pytorch.parameters())[0],
+        atol=1e-6
+    ))
+
+def visualize_velocity():
+    torch.manual_seed(42)
+    
+    model = SimpleNet()
+    optimizer = optim.SGD(model.parameters(), lr=0.01, momentum=0.9)
+    
+    X = torch.randn(100, 20)
+    y = torch.randn(100, 1)
+    
+    velocity_norms = []
+    criterion = nn.MSELoss()
+    
+    for _ in range(50):
+        optimizer.zero_grad()
+        loss = criterion(model(X), y)
+        loss.backward()
+        
+        velocities = []
+        for p in model.parameters():
+            if p in optimizer.state and 'momentum_buffer' in optimizer.state[p]:
+                velocities.append(optimizer.state[p]['momentum_buffer'].norm().item())
+        
+        optimizer.step()
+        
+        if velocities:
+            velocity_norms.append(np.mean(velocities))
+    
+    print(f"\nVelocity norm range: {min(velocity_norms):.4f} - {max(velocity_norms):.4f}")
+
+if __name__ == "__main__":
+    compare_sgd_vs_pytorch()
+    visualize_velocity()
+```
+
+## 9. 可视化与结果理解
+
+```python
+import numpy as np
+import matplotlib.pyplot as plt
+import torch
+import torch.nn as nn
+import torch.optim as optim
+
+def visualize_convergence_race():
+    np.random.seed(42)
+    torch.manual_seed(42)
+    
+    def train_and_record(optimizer_name, seed):
+        torch.manual_seed(seed)
+        
+        model = nn.Sequential(
+            nn.Linear(20, 64),
+            nn.ReLU(),
+            nn.Linear(64, 64),
+            nn.ReLU(),
+            nn.Linear(64, 1)
+        )
+        
+        X = torch.randn(500, 20)
+        y = X @ torch.randn(20, 1)
+        
+        if optimizer_name == 'SGD':
+            optimizer = optim.SGD(model.parameters(), lr=0.01, momentum=0.9)
+        elif optimizer_name == 'Adam':
+            optimizer = optim.Adam(model.parameters(), lr=0.001)
+        
+        criterion = nn.MSELoss()
+        losses = []
+        
+        for _ in range(100):
+            optimizer.zero_grad()
+            loss = criterion(model(X), y)
+            loss.backward()
+            optimizer.step()
+            losses.append(loss.item())
+        
+        return losses
+    
+    plt.figure(figsize=(12, 6))
+    
+    losses_sgd = train_and_record('SGD', 42)
+    losses_adam = train_and_record('Adam', 42)
+    
+    plt.plot(losses_sgd, label='SGD with Momentum', linewidth=2)
+    plt.plot(losses_adam, label='Adam', linewidth=2)
+    
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.title('SGD vs Adam Convergence')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.savefig('sgd_adam_race.png', dpi=150)
+    plt.show()
+
+def visualize_loss_surface():
+    def rosenbrock(x, y):
+        return (1 - x)**2 + 100 * (y - x**2)**2
+    
+    def sgd_rosenbrock(x0, y0, lr=0.001, momentum=0.9, n_steps=100):
+        x, y = x0, y0
+        vx, vy = 0, 0
+        path = [(x, y)]
+        
+        for _ in range(n_steps):
+            dx = -2 * (1 - x) - 400 * x * (y - x**2)
+            dy = 200 * (y - x**2)
+            
+            vx = momentum * vx + (1 - momentum) * dx
+            vy = momentum * vy + (1 - momentum) * dy
+            
+            x = x - lr * vx
+            y = y - lr * vy
+            
+            path.append((x, y))
+        
+        return path
+    
+    x = np.linspace(-2, 2, 100)
+    y = np.linspace(-1, 3, 100)
+    X, Y = np.meshgrid(x, y)
+    Z = rosenbrock(X, Y)
+    
+    plt.figure(figsize=(12, 5))
+    
+    plt.subplot(1, 2, 1)
+    plt.contour(X, Y, Z, levels=30)
+    path = sgd_rosenbrock(-1, 2, lr=0.001, momentum=0.9)
+    path = np.array(path)
+    plt.plot(path[:, 0], path[:, 1], 'r-', linewidth=2, label='SGD Path')
+    plt.scatter([1], [1], c='green', s=100, marker='*', label='Optimal')
+    plt.xlabel('x')
+    plt.ylabel('y')
+    plt.title('Rosenbrock Optimization')
+    plt.legend()
+    
+    plt.subplot(1, 2, 2)
+    plt.contour(X, Y, Z, levels=30)
+    path2 = sgd_rosenbrock(-1, 2, lr=0.0001, momentum=0.0)
+    path2 = np.array(path2)
+    plt.plot(path2[:, 0], path2[:, 1], 'b-', linewidth=2, label='SGD (no momentum)')
+    plt.scatter([1], [1], c='green', s=100, marker='*', label='Optimal')
+    plt.xlabel('x')
+    plt.ylabel('y')
+    plt.title('SGD without Momentum')
+    plt.legend()
+    
+    plt.tight_layout()
+    plt.savefig('sgd_rosenbrock.png', dpi=150)
+    plt.show()
+
+def plot_batch_size_effect():
+    torch.manual_seed(42)
+    
+    def train_and_evaluate(batch_size):
+        model = nn.Sequential(
+            nn.Linear(20, 64),
+            nn.ReLU(),
+            nn.Linear(64, 1)
+        )
+        
+        X = torch.randn(200, 20)
+        y = X @ torch.randn(20, 1)
+        
+        optimizer = optim.SGD(model.parameters(), lr=0.01, momentum=0.9)
+        criterion = nn.MSELoss()
+        
+        for _ in range(50):
+            indices = torch.randint(0, len(X), (batch_size,))
+            x_batch, y_batch = X[indices], y[indices]
+            optimizer.zero_grad()
+            loss = criterion(model(x_batch), y_batch)
+            loss.backward()
+            optimizer.step()
+        
+        with torch.no_grad():
+            loss = criterion(model(X), y).item()
+        
+        return loss
+    
+    batch_sizes = [1, 4, 8, 16, 32, 64, 128]
+    losses = [train_and_evaluate(bs) for bs in batch_sizes]
+    
+    plt.figure(figsize=(10, 6))
+    plt.bar(range(len(batch_sizes)), losses)
+    plt.xticks(range(len(batch_sizes)), batch_sizes)
+    plt.xlabel('Batch Size')
+    plt.ylabel('Final Loss')
+    plt.title('SGD Batch Size Effect')
+    plt.grid(True, alpha=0.3)
+    plt.savefig('sgd_batch.png', dpi=150)
+    plt.show()
+
+if __name__ == "__main__":
+    visualize_convergence_race()
+    visualize_loss_surface()
+    plot_batch_size_effect()
+```
+
+## 10. 模型评估
+
+```python
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import numpy as np
+from sklearn.metrics import mean_squared_error, r2_score
+
+def comprehensive_evaluation():
+    torch.manual_seed(42)
+    np.random.seed(42)
+    
+    class Net(nn.Module):
+        def __init__(self):
+            super(Net, self).__init__()
+            self.fc1 = nn.Linear(20, 64)
+            self.fc2 = nn.Linear(64, 64)
+            self.fc3 = nn.Linear(64, 1)
+        
+        def forward(self, x):
+            x = torch.relu(self.fc1(x))
+            x = torch.relu(self.fc2(x))
+            x = self.fc3(x)
+            return x
+    
+    X = np.random.randn(500, 20)
+    y = X @ np.random.randn(20) + 0.1 * np.random.randn(500)
+    
+    n_train = 350
+    X_train, y_train = X[:n_train], y[:n_train]
+    X_test, y_test = X[n_train:], y[n_train:]
+    
+    X_train_t = torch.FloatTensor(X_train)
+    y_train_t = torch.FloatTensor(y_train).view(-1, 1)
+    X_test_t = torch.FloatTensor(X_test)
+    y_test_t = torch.FloatTensor(y_test).view(-1, 1)
+    
+    model = Net()
+    criterion = nn.MSELoss()
+    optimizer = optim.SGD(model.parameters(), lr=0.01, momentum=0.9)
+    
+    train_losses = []
+    test_losses = []
+    
+    for epoch in range(200):
+        model.train()
+        optimizer.zero_grad()
+        output = model(X_train_t)
+        loss = criterion(output, y_train_t)
+        loss.backward()
+        optimizer.step()
+        
+        model.eval()
+        with torch.no_grad():
+            train_pred = model(X_train_t).numpy()
+            test_pred = model(X_test_t).numpy()
+            
+            train_mse = mean_squared_error(y_train, train_pred)
+            test_mse = mean_squared_error(y_test, test_pred)
+            
+            train_r2 = r2_score(y_train, train_pred)
+            test_r2 = r2_score(y_test, test_pred)
+        
+        train_losses.append({'mse': train_mse, 'r2': train_r2})
+        test_losses.append({'mse': test_mse, 'r2': test_r2})
+    
+    model.eval()
+    with torch.no_grad():
+        final_pred = model(X_test_t).numpy()
+        final_mse = mean_squared_error(y_test, final_pred)
+        final_r2 = r2_score(y_test, final_pred)
+    
+    print("=" * 50)
+    print("SGD Model Evaluation")
+    print("=" * 50)
+    print(f"Final Test MSE: {final_mse:.4f}")
+    print(f"Final Test R²: {final_r2:.4f}")
+    print(f"Final Train MSE: {train_losses[-1]['mse']:.4f}")
+    print(f"Final Train R²: {train_losses[-1]['r2']:.4f}")
+    
+    return train_losses, test_losses
+
+if __name__ == "__main__":
+    comprehensive_evaluation()
+```
+
+## 11. 常见问题与易错点
+
+### 11.1 学习率太大
+
+**问题**：学习率太大导致发散或震荡。
+
+**解决方案**：从0.01开始尝试，逐步调整。
+
+### 11.2 学习率太小
+
+**问题**：收敛太慢，无法在合理时间内完成。
+
+**解决方案**：如果损失下降太慢，逐步增大。
+
+### 11.3 没有动量
+
+**问题**：在狭窄山谷中震荡，无法快速收敛。
+
+**解决方案**：添加momentum（0.9常用）。
+
+### 11.4 批量大小不合适
+
+**问题**：批量太小不稳定，批量太大收敛慢。
+
+**解决方案**：32-256常用，根据GPU内存调整。
+
+### 11.5 特征未缩放
+
+**问题**：SGD对特征缩放敏感，未缩放导致不收敛。
+
+**解决方案**：标准化输入数据（均值为0，方差为1）。
+
+## 12. 学习总结
+
+SGD是深度学习优化算法的基石，其简单而有效的设计使其成为理解和实现其他优化算法的基础。
+
+**关键要点**：
+1. 随机梯度估计：使用mini-batch近似真实梯度
+2. 动量：加速收敛，减少震荡
+3. 学习率：控制步长，需要仔细调优
+4. Nesterov动量：改进的动量方法
+
+**实现要点**：
+1. 使用momentum加速收敛
+2. 选择合适的批量大小
+3. 学习率调度加速收敛
+4. 梯度裁剪防止爆炸
+
+**最佳实践**：
+1. 从momentum SGD开始
+2. 使用学习率调度
+3. 合适的批量大小（32-256）
+4. 数据预处理（标准化）
+
+## 13. 练习题与思考题与思考题（含答案）
+
+### 练习题
+
+1. **简答题**：解释SGD和批量梯度下降的区别。
+
+2. **计算题**：如果动量β=0.9，计算第5步的有效学习率。
+
+3. **代码题**：实现SGD with Nesterov动量。
+
+4. **思考题**：为什么动量能够帮助跳出局部最小值？
+
+5. **分析题**：分析学习率对SGD收敛的影响。
+
+### 答案
+
+1. **答案**：SGD每次用单个或少量样本计算梯度；批量梯度下降用全部数据。SGD更快但有噪声。
+
+2. **答案**：有效学习率 = α * (1-β^5)/(1-β) ≈ α * 0.41，所以约0.41倍学习率。
+
+3. **答案**：见第8节代码实现。
+
+4. **答案**：动量使参数具有惯性，可以冲过小的局部最小值继续前进。
+
+5. **答案**：太大导致发散，太小收敛太慢，需要在两者之间找到平衡。
+
+## 14. 学习路径建议建议
+
+### 入门阶段
+1. 理解梯度下降原理
+2. 实现简单SGD
+3. 学习率调优
+
+### 进阶阶段
+1. 动量SGD
+2. Nesterov动量
+3. 学习率调度
+
+### 高级阶段
+1. 收敛性理论
+2. 自适应学习率方法
+3. 大规模训练优化
+
+### 推荐资源
+- 原论文：Bottou, "Large-Scale Machine Learning with SGD"
+- PyTorch文档：torch.optim.SGD
+- 深度学习教材中优化章节
