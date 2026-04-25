@@ -16,7 +16,7 @@ $$
 Q \left(s _ {t}, a _ {t}\right) \leftarrow Q \left(s _ {t}, a _ {t}\right) + \alpha \left[ r _ {t + 1} + \gamma \max  _ {a ^ {\prime}} Q \left(s _ {t + 1}, a ^ {\prime}\right) - Q \left(s _ {t}, a _ {t}\right) \right]
 $$
 
-其中， $_ \alpha$ 是学习率， 是折扣因子。目标 $r _ { t + 1 } + \gamma \operatorname* { m a x } _ { a ^ { \prime } } Q ( s _ { t + 1 } , a ^ { \prime } )$ 包含了当前奖励和对下一状态最大 Q 值的估计。
+其中，$_ \alpha$ 是学习率， 是折扣因子。目标 $r _ { t + 1 } + \gamma \operatorname* { m a x } _ { a ^ { \prime } } Q ( s _ { t + 1 } , a ^ { \prime } )$ 包含了当前奖励和对下一状态最大 Q 值的估计。
 
  场景：经典 Q-Learning 是表格型方法，适用于状态和动作空间小、可枚举的场景，如简单的网格世界。其思想是深度 Q网络等算法的基础。
 
@@ -141,7 +141,7 @@ $$
 J (\theta) = \mathbb {E} _ {\tau \sim \pi_ {\theta}} [ R (\tau) ],
 $$
 
-其中 表示一条轨迹（trajectory）， $\tau = ( s _ { 0 } , a _ { 0 } , s _ { 1 } , a _ { 1 } , \dots , s _ { T } )$ $R ( \tau ) = { \sum _ { t = 0 } ^ { T } r ( s _ { t } , a _ { t } ) }$ 是轨迹 $\tau$ 的总回报。我们的目标是找到最优参数 $\theta ^ { * }$ ，使得 $J ( \theta )$ 最大： $\theta ^ { * } = \arg \operatorname* { m a x } _ { \theta } J ( \theta )$
+其中 表示一条轨迹（trajectory），$\tau = ( s _ { 0 } , a _ { 0 } , s _ { 1 } , a _ { 1 } , \dots , s _ { T } )$ $R ( \tau ) = { \sum _ { t = 0 } ^ { T } r ( s _ { t } , a _ { t } ) }$ 是轨迹 $\tau$ 的总回报。我们的目标是找到最优参数 $\theta ^ { * }$ ，使得 $J ( \theta )$ 最大： $\theta ^ { * } = \arg \operatorname* { m a x } _ { \theta } J ( \theta )$
 
 # 3. 策略梯度定理推导
 
@@ -257,3 +257,152 @@ $$
 
 小结：Policy Gradient策略梯度定理是许多现代强化学习算法（如 Actor-Critic、PPO、TRPO）的基石。掌握其推导和理解其背后的直观含义（增加高回报动作的概率，减少低回报动作的概率），以及如何通过基线 Baseline、优势函数等方法降低方差，对于应对技术面试和深入理解强化学习都至关重要。
 
+# PyTorch 代码实现
+
+```python
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import numpy as np
+import random
+
+
+class QLearningAgent:
+    """基于价值的 Q-Learning 表格型实现"""
+    def __init__(self, n_states, n_actions, lr=0.1, gamma=0.99, epsilon=0.1):
+        self.q_table = np.zeros((n_states, n_actions))
+        self.lr = lr
+        self.gamma = gamma
+        self.epsilon = epsilon
+        self.n_actions = n_actions
+
+    def select_action(self, state):
+        if random.random() < self.epsilon:
+            return random.randrange(self.n_actions)
+        return int(np.argmax(self.q_table[state]))
+
+    def update(self, state, action, reward, next_state, done):
+        best_next = np.max(self.q_table[next_state])
+        td_target = reward + self.gamma * best_next * (1 - done)
+        self.q_table[state, action] += self.lr * (td_target - self.q_table[state, action])
+
+
+class PolicyNetwork(nn.Module):
+    """策略网络，输出动作概率分布"""
+    def __init__(self, state_dim, action_dim, hidden_dim=128):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(state_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, action_dim),
+            nn.Softmax(dim=-1),
+        )
+
+    def forward(self, x):
+        return self.net(x)
+
+
+class REINFORCEAgent:
+    """基于策略的 REINFORCE 实现"""
+    def __init__(self, state_dim, action_dim, lr=1e-3, gamma=0.99):
+        self.gamma = gamma
+        self.policy = PolicyNetwork(state_dim, action_dim)
+        self.optimizer = torch.optim.Adam(self.policy.parameters(), lr=lr)
+        self.log_probs = []
+        self.rewards = []
+
+    def select_action(self, state):
+        state_t = torch.FloatTensor(state)
+        probs = self.policy(state_t)
+        dist = torch.distributions.Categorical(probs)
+        action = dist.sample()
+        self.log_probs.append(dist.log_prob(action))
+        return action.item()
+
+    def store_reward(self, reward):
+        self.rewards.append(reward)
+
+    def update(self):
+        returns = []
+        g = 0
+        for r in reversed(self.rewards):
+            g = r + self.gamma * g
+            returns.insert(0, g)
+        returns = torch.tensor(returns, dtype=torch.float32)
+        returns = (returns - returns.mean()) / (returns.std() + 1e-8)
+
+        loss = 0
+        for log_prob, g in zip(self.log_probs, returns):
+            loss -= log_prob * g
+
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+        self.log_probs = []
+        self.rewards = []
+
+
+class ActorCriticNetwork(nn.Module):
+    """Actor-Critic 共享骨干网络"""
+    def __init__(self, state_dim, action_dim, hidden_dim=128):
+        super().__init__()
+        self.shared = nn.Sequential(
+            nn.Linear(state_dim, hidden_dim),
+            nn.ReLU(),
+        )
+        self.actor = nn.Sequential(
+            nn.Linear(hidden_dim, action_dim),
+            nn.Softmax(dim=-1),
+        )
+        self.critic = nn.Linear(hidden_dim, 1)
+
+    def forward(self, x):
+        shared = self.shared(x)
+        return self.actor(shared), self.critic(shared)
+
+
+class A2CAgent:
+    """Actor-Critic (A2C) 实现"""
+    def __init__(self, state_dim, action_dim, lr=1e-3, gamma=0.99):
+        self.gamma = gamma
+        self.model = ActorCriticNetwork(state_dim, action_dim)
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
+
+    def select_action(self, state):
+        state_t = torch.FloatTensor(state)
+        probs, value = self.model(state_t)
+        dist = torch.distributions.Categorical(probs)
+        action = dist.sample()
+        return action.item(), dist.log_prob(action), value.squeeze()
+
+    def update(self, log_probs, values, rewards, dones):
+        returns = []
+        g = 0
+        for r, d in zip(reversed(rewards), reversed(dones)):
+            g = r + self.gamma * g * (1 - d)
+            returns.insert(0, g)
+        returns = torch.tensor(returns, dtype=torch.float32)
+        values = torch.stack(values)
+        log_probs = torch.stack(log_probs)
+
+        advantages = returns - values.detach()
+        actor_loss = -(log_probs * advantages).mean()
+        critic_loss = F.mse_loss(values, returns)
+        loss = actor_loss + 0.5 * critic_loss
+
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+        return loss.item()
+```
+
+## 常见问题与易错点
+
+1. **REINFORCE 基线归一化**：回报必须标准化 `(returns - mean) / std`，否则梯度方差过大导致训练不稳定
+2. **Q-Learning 的 off-policy**：Q-Learning 用 `max Q(s', a')` 更新，这是 off-policy 的核心，与 SARSA 的 on-policy 区别
+3. **A2C 的优势函数**：`advantages = returns - values.detach()` 中 `.detach()` 防止梯度流向 Critic
+4. **折扣因子 γ 的选择**：γ 过大则远期奖励权重过高导致方差大，γ 过小则策略短视，通常取 0.99
+
+## 学习总结
+
+三类强化学习方法各有定位：基于价值（Q-Learning/DQN）适合离散动作空间，样本效率高；基于策略（REINFORCE）适合连续动作空间，直接优化策略；Actor-Critic（A2C/PPO）融合两者优势，是当前主流。理解策略梯度定理是掌握所有策略优化方法的基础。

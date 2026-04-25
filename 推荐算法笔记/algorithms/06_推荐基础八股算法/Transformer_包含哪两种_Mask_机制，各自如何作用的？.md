@@ -297,3 +297,82 @@ if __name__ == "__main__":
 - **Encoder 不需要 Causal Mask**：BERT 类模型的双向注意力不需要因果约束。在 Encoder-Decoder 架构中，Encoder 的 Self-Attention 只需 Padding Mask。
 - **Cross-Attention 的 Mask**：Decoder 的 Cross-Attention 只需 Padding Mask（来自 Encoder 的 Padding），不需要 Causal Mask，因为 Encoder 的输出已经是完整的编码。
 - **推理时的 KV Cache 与 Mask**：自回归推理时，由于每次只生成一个 token，Causal Mask 退化为恒等（不需要遮蔽任何东西），但 Padding Mask 仍然需要。
+
+# 10. 不同模型的 Mask 策略对比
+
+## 10.1 GPT / BERT / T5 的 Mask 差异
+
+| 模型 | Padding Mask | Causal Mask | 特殊 Mask | 训练效率 |
+|------|-------------|-------------|----------|---------|
+| GPT 系列 | 有（屏蔽 PAD） | 有（自回归生成） | 无 | 需要逐 token 自回归 |
+| BERT | 有（屏蔽 PAD） | 无（双向注意力） | MLM Mask（随机屏蔽 15% token） | 一次前向传播完成 |
+| T5（Encoder） | 有 | 无 | Span Mask（屏蔽连续片段） | 一次前向传播 |
+| T5（Decoder） | 有 | 有 | Sentinel Token Mask | 自回归生成 |
+| UniLM | 有 | 部分（根据任务切换） | 结合双向/单向/seq2seq | 灵活但实现复杂 |
+| XLNet | 有 | 排列语言模型 Mask | Permutation Mask | 计算开销较大 |
+
+## 10.2 Mask 策略的优缺点分析
+
+### Padding Mask
+
+**优点**：实现简单，所有框架原生支持；有效避免无效位置对注意力的干扰；支持变长 batch 处理。
+
+**缺点**：填充比例过高时（如短序列 + 大 batch），有效计算比例低；某些实现中填充位置仍消耗计算资源（未优化前）。
+
+**优化建议**：使用 `nn.utils.rnn.pack_padded_sequence` 压缩填充位置，或使用 Flash Attention 自动跳过填充。
+
+### Causal Mask
+
+**优点**：保证自回归性质，训练时可并行计算所有位置（一次前向传播完成）；实现简单（下三角矩阵）。
+
+**缺点**：限制了当前位置对未来的信息获取，双向建模能力弱于 BERT；推理时需要 KV Cache 配合才能高效。
+
+### MLM Mask（BERT 特有）
+
+**优点**：利用了双向上下文信息，理解能力强；预训练与微调一致性好。
+
+**缺点**：预训练与微调存在输入差异（[MASK] token 仅在预训练出现）；屏蔽比例为超参数（15% 是经验值）。
+
+## 10.3 推荐系统中的 Mask 特殊应用
+
+### 序列推荐中的 Causal Mask
+
+在 SASRec、BST 等序列推荐模型中，Causal Mask 的使用需要特别注意：
+
+```python
+def create_rec_causal_mask(seq_len, behavior_types=None):
+    mask = torch.tril(torch.ones(seq_len, seq_len))
+    if behavior_types is not None:
+        for i in range(seq_len):
+            for j in range(i):
+                if behavior_types[j] == 'negative_feedback':
+                    mask[i, j] = 0
+    return mask.unsqueeze(0).unsqueeze(0)
+```
+
+**推荐场景的特殊考量**：
+
+1. **负反馈屏蔽**：用户的不喜欢/跳过行为应被特殊处理，可选择屏蔽或降低权重
+2. **多类型行为 Mask**：点击、购买、加购等不同行为类型可设计不同的 Mask 策略
+3. **时间衰减 Mask**：基于时间间隔的软 Mask（非硬 0/1），越远的行为权重越低
+
+### 列表推荐中的序列 Mask
+
+推荐列表生成（如 List-wise 推荐）中，Causal Mask 确保第 $i$ 个推荐位只参考前 $i-1$ 个已推荐物品，避免信息泄露：
+
+```python
+def listwise_causal_mask(list_size, num_candidates):
+    causal = torch.tril(torch.ones(list_size, list_size))
+    return causal.unsqueeze(0).unsqueeze(0)
+```
+
+## 10.4 Mask 机制的选择指南
+
+| 场景 | 推荐的 Mask 组合 | 理由 |
+|------|----------------|------|
+| 双向文本理解（分类/匹配） | 仅 Padding Mask | 双向注意力利用完整上下文 |
+| 文本生成 | Padding + Causal Mask | 保证自回归性质 |
+| 序列推荐 | Padding + Causal Mask + 时间衰减 | 防止未来信息泄露 + 远端衰减 |
+| 列表推荐 | Padding + Causal Mask | 确保列表生成的因果性 |
+| 多任务推荐 | Padding + 任务间隔离 Mask | 防止任务间信息泄露 |
+| 对话推荐 | Padding + Causal Mask + 轮次 Mask | 区分对话轮次边界 |

@@ -27,13 +27,18 @@ $$
 
 ### 增量式 PID 公式（避免积分饱和）：
 
+增量式 PID 不直接计算控制量的绝对值，而是计算控制量的**增量** Δu(t)：
+
 $$
-\Delta u = K_p \cdot e(t) + K_i \cdot \sum e(t) + K_d \cdot [e(t) - prev\_error]
+\Delta u(t) = K_p[e(t) - e(t-1)] + K_i \cdot e(t) + K_d[e(t) - 2e(t-1) + e(t-2)]
 $$
 
 其中：
 - e(t) = 目标成本 - 实际成本（当前时刻的误差）
+- e(t-1) = 上一时刻误差，e(t-2) = 上两个时刻误差
 - Kp, Ki, Kd 分别为比例、积分、微分系数
+
+**为什么增量式 PID 能避免积分饱和？** 位置式 PID 中积分项 Σe(t) 会持续累积，当误差长期为正（或负）时积分项可能无限增大，导致控制量远超合理范围（积分饱和）。而增量式 PID 直接计算 Δu(t)，不显式累加积分项——积分作用被隐含在 Ki·e(t) 中，每次只对输出做增量调整，因此天然不会出现积分饱和问题。
 
 最终出价 = 基础出价 × (1 + Δu)
 
@@ -82,6 +87,7 @@ class PIDBidController:
         error = self.target_cost - actual_cost
         if self.first_run:
             p_term = self.kp * error
+            adjustment = 1.0 + p_term
             self.first_run = False
         else:
             p_term = self.kp * error
@@ -134,6 +140,78 @@ def pid_bid_adjust(base_bid, target_cpa, actual_cpa, kp=0.1, ki=0.01, kd=0.05):
 - PID 出价轨迹对比：PID 容易出现震荡（λ: 0.50 → 0.45 → 0.60 → 0.80 → 1.20 → 0.70 → ...）
 - 而 MPC 出价更平滑（λ: 0.75 → 0.78 → 0.82 → 0.85 → 0.88 → 0.90 → ...）
 
+```python
+import numpy as np
+import matplotlib.pyplot as plt
+
+np.random.seed(42)
+target_cpa = 10.0
+base_bid = 5.0
+kp, ki, kd = 0.1, 0.01, 0.05
+hours = 60
+
+def simulate_pid(target, kp, ki, kd, n_steps, noise_scale=2.0):
+    adjustment_factors = []
+    actual_cpas = []
+    integral, prev_error = 0.0, 0.0
+    actual_cpa = target + 5.0
+    for t in range(n_steps):
+        error = target - actual_cpa
+        integral += error
+        integral = np.clip(integral, -10.0, 10.0)
+        if t > 0:
+            derivative = error - prev_error
+        else:
+            derivative = 0.0
+        prev_error = error
+        delta_u = kp * error + ki * integral + kd * derivative
+        adjustment = 1.0 + delta_u
+        adjustment = np.clip(adjustment, 0.3, 3.0)
+        adjustment_factors.append(adjustment)
+        actual_cpa = target + noise_scale * np.sin(t * 0.3) + (target / adjustment - target) * 0.3
+        actual_cpa += np.random.normal(0, 0.5)
+        actual_cpas.append(actual_cpa)
+    return np.array(adjustment_factors), np.array(actual_cpas)
+
+def simulate_mpc(target, n_steps, noise_scale=2.0):
+    actual_cpas = []
+    for t in range(n_steps):
+        error = target - (target + noise_scale * np.sin(t * 0.3) + np.random.normal(0, 0.5))
+        adj = 1.0 + 0.05 * error
+        adj = np.clip(adj, 0.5, 2.0)
+        actual_cpa = target + noise_scale * np.sin(t * 0.3) * 0.3 + np.random.normal(0, 0.3)
+        actual_cpas.append(actual_cpa)
+    adjustments = 1.0 + 0.02 * np.cumsum(target - np.array(actual_cpas)) / np.arange(1, n_steps + 1)
+    adjustments = np.clip(adjustments, 0.5, 2.0)
+    return adjustments, np.array(actual_cpas)
+
+pid_adj, pid_cpa = simulate_pid(target_cpa, kp, ki, kd, hours)
+mpc_adj, mpc_cpa = simulate_mpc(target_cpa, hours)
+
+fig, axes = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
+
+axes[0].plot(range(hours), pid_cpa, 'b-', alpha=0.8, label='PID Actual CPA')
+axes[0].plot(range(hours), mpc_cpa, 'g-', alpha=0.8, label='MPC Actual CPA')
+axes[0].axhline(y=target_cpa, color='r', linestyle='--', linewidth=2, label=f'Target CPA = {target_cpa}')
+axes[0].set_ylabel('CPA', fontsize=12)
+axes[0].set_title('PID vs MPC: CPA Tracking Performance', fontsize=14)
+axes[0].legend(fontsize=10)
+axes[0].grid(True, alpha=0.3)
+
+axes[1].plot(range(hours), pid_adj, 'b-', alpha=0.8, label='PID Adjustment Factor')
+axes[1].plot(range(hours), mpc_adj, 'g-', alpha=0.8, label='MPC Adjustment Factor')
+axes[1].axhline(y=1.0, color='r', linestyle='--', linewidth=2, label='Baseline (1.0)')
+axes[1].set_xlabel('Hour', fontsize=12)
+axes[1].set_ylabel('Adjustment Factor', fontsize=12)
+axes[1].set_title('PID vs MPC: Bid Adjustment Factor Over Time', fontsize=14)
+axes[1].legend(fontsize=10)
+axes[1].grid(True, alpha=0.3)
+
+plt.tight_layout()
+plt.savefig('pid_vs_mcp_bidding.png', dpi=150, bbox_inches='tight')
+plt.show()
+```
+
 ## 10. 模型评估
 
 - 成本控制精度：实际 CPA 与目标 CPA 的偏差
@@ -154,7 +232,7 @@ PID 是广告出价的第一代核心算法，简单高效但存在短视、约�
 
 ## 13. 练习题与思考题（含答案）
 
-1. **推导**：推导增量式 PID 公式，并解释为什么增量式可以避免积分饱和。
+1. **推导**：推导增量式 PID 公式 Δu(t) = Kp[e(t)-e(t-1)] + Ki·e(t) + Kd[e(t)-2e(t-1)+e(t-2)]，从位置式 PID 出发，说明每一步推导的依据，并解释为什么增量式可以避免积分饱和。
 2. **实践**：调整 Kp=0.5, Ki=0, Kd=0 观察系统响应，然后逐步加入 Ki 和 Kd，记录超调量和收敛速度的变化。
 3. **思考**：为什么广告系统中 PID 通常以分钟级别更新权重，而不是秒级别？
 

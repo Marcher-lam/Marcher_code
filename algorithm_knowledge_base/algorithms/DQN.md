@@ -1,267 +1,432 @@
 # DQN 学习文档
 
+> DQN (Deep Q-Network) 是一种将深度学习与强化学习结合的算法,使用经验回放和目标网络来解决不稳定的Q学习问题,是深度强化学习的里程碑。
+
+---
+
 ## 1. 算法基础认知
 
-### 1.1 一句话定义
-DQN（Deep Q-Network，深度Q网络）是将深度神经网络与Q-learning结合的off-policy算法，通过经验回放和目标网络技术解决函数逼近的稳定性问题，是深度强化学习的里程碑。
+### 一句话定义
+DQN 通过深度神经网络近似Q函数,结合经验回放缓冲区和目标网络,能够从高维状态空间中学习最优策略。
 
-### 1.2 直觉类比
-想象你在学习玩一个新的电子游戏：
-- **Q值**：你对每个动作的"信任度"，类似于"这一步我觉得能赢"
-- **神经网络**：你逐渐形成了一套"游戏策略"
-- **经验回放**：你每玩完一局后回顾之前的录像带反思
-- **目标网络**：教练不是每时每刻都评价你，而是隔一段时间给建议
-- **ε-greedy**：你大部分时候按策略玩，但偶尔随机尝试新招数探索
+### 直觉类比
+想象一个学生在玩电子游戏:
+- **Q表**:记忆每个状态-动作对的得分
+- **DQN**:像一个经验丰富的"游戏教练",能够评估在任何游戏画面(状态)下,采取某个动作的好坏
 
-### 1.3 历史背景
-DQN由DeepMind的Mnih等人在2013年提出，2015年在Nature发表。之前的Q-learning使用表格存储，但状态空间大时无法处理。DQN引入CNN处理图像输入，解决了Atari游戏的端到端学习问题。核心创新是经验回放和目标网络，解决了函数逼近的稳定性这一强化学习难题。
+### 历史背景
+- 2013年,Mnih等人在NIPS提出DQN(Atari游戏)
+- 2015年,Nature论文发表
+- 奠定了深度强化学习的基础
 
-### 1.4 算法定位
-- 类型：强化学习off-policy算法
-- 输出：离散动作的Q值
-- 模型类别：深度卷积/全连接网络
-- 任务：高维状态的序贯决策
+### 算法定位
+- **类型**:值函数近似/深度强化学习
+- **输出**:每个动作的Q值
+- **模型类型**:卷积神经网络/Q网络
 
-### 1.5 前置知识
-- Q-learning基础
-- 神经网络
-- Python编程
+### 前置知识
+- Q学习基础
+- 神经网络训练
+- 经验回放概念
+
+---
 
 ## 2. 核心原理
 
 ### 2.1 核心思想
-DQN用神经网络逼近Q函数$Q(s,a) \approx \hat{Q}(s,a|\theta)$。直接用非线形网络逼近会导致不稳定，DQN通过两个关键技术解决：
-1. **经验回放**：打破数据的时间相关性
-2. **目标网络**：提供稳定的训练目标
+DQN的核心是**用深度学习近似Q函数**:
+
+1. **神经网络近似**: $Q(s,a|\theta) \approx Q^*(s,a)$
+2. **经验回放**:存储历史$(s,a,r,s')$随机采样打破时间相关性
+3. **目标网络**:固定参数计算目标Q值,稳定训练
 
 ### 2.2 工作流程
-1. **探索**：ε-greedy选择动作
-2. **存储**：$(s_t, a_t, r_t, s_{t+1}, done)$存入回放缓冲区
-3. **采样**：随机小批量采样
-4. **计算目标**：$y_j = r_j + \gamma \max_{a'} Q_{target}(s'_j, a')$
-5. **更新网络**：最小化MSE损失
-6. **定期更新目标网络**
+```
+环境 → 状态s → Q网络 → 动作a (ε-greedy)
+                  ↓
+              存储(s,a,r,s')
+                  ↓
+        随机小批量采样
+                  ↓
+        最小化TD误差更新网络
+```
 
 ### 2.3 关键概念
-- **经验回放**：存储N个transition，随机采样
-- **目标网络**：每隔C步复制参数
-- **ε-greedy**：$\epsilon$概率随机，$1-\epsilon$贪心
-- **固定时间步**：每隔4步执行一次更新
+- **TD误差**: $y_j - Q(s_i,a_i|\theta)$
+- **目标Q值**: $y_j = r_j + \gamma \max_{a'}Q'(s'_j,a')$
+- **ε-greedy**: $\epsilon$概率随机,其余贪心
 
-### 2.4 几何解释
-Q函数可以被理解为游戏中的"得分预测"。网络输出每个动作的预期得分，选择最高的动作。
+### 2.4 架构图
+```
+┌─────────────────────────────────────┐
+│          DQN 架构                   │
+│  ┌─────────┐   ┌──────────────┐     │
+│  │ 输入s   │→  │  CNN/MLP   │→ Q值    │
+│  │(84x84)  │   │  θ         │ (actions)│
+│  └─────────┘   └──────────────┘     │
+│                                    │
+│ ┌───────────────────────────────┐   │
+│ │    经验回放缓冲区D            │   │
+│ │ [s,a,r,s',done] × M         │   │
+│ └───────────────────────────────┘   │
+│                                    │
+│ ┌───────────────────────────────┐   │
+│ │    目标网络Q' (θ-)             │   │
+│ │ 定期从Q复制参数               │   │
+│ └───────────────────────────────┘   │
+└─────────────────────────────────────┘
+```
 
-## 3. 数学公式
+---
 
-### 3.1 符号表
+## 3. 数学公式与推导
+
+### 3.1 符号约定
+
 | 符号 | 含义 |
 |------|------|
-| $Q(s,a)$ | 动作价值 |
-| $Q(s,a|\theta)$ | 网络输出 |
-| $\theta$ | 网络参数 |
+| $s$ | 状态 |
+| $a$ | 动作 |
+| $r$ | 奖励 |
+| $Q(s,a;\theta)$ | 参数化Q函数 |
+| $y$ | TD目标 |
+| $\theta$ | 在线网络参数 |
 | $\theta^-$ | 目标网络参数 |
-| $\epsilon$ | 探索率 |
+| $\gamma$ | 折扣因子 |
 
-### 3.2 问题
-$$\max_\theta J(\theta) = \mathbb{E}_{s,a,r,s'}\left[(r + \gamma \max_a Q(s',a|\theta^-) - Q(s,a|\theta))^2\right]$$
+### 3.2 Q学习目标
+$$L(\theta) = \mathbb{E}_{(s,a,r,s',done)}[(y - Q(s,a;\theta))^2]$$
 
-### 3.3 损失
-$$L(\theta) = \frac{1}{|B|}\sum_{j \in B}(y_j - Q(s_j,a_j|\theta))^2$$
+其中目标:
+$$y = r + \gamma \max_{a'} Q(s',a';\theta^-)$$
 
-其中$y_j = r_j + \gamma \max_a Q(s'_j,a|\theta^-)$是TD目标。
+### 3.3 训练目标
+$$\min_\theta \mathcal{L}_{TD} = \min_\theta \mathbb{E}[(r + \gamma \max_{a'}Q(s',a';\theta^-) - Q(s,a;\theta))^2]$$
 
-### 3.4 推导
-从Q-learning更新：
-$$Q(s,a) \leftarrow Q(s,a) + \alpha[r + \gamma\max_{a'}Q(s',a') - Q(s,a)]$$
+### 3.4 推导过程
 
-用函数逼近：
-$$\theta \leftarrow \theta - \alpha \nabla_\theta (Q(s,a|\theta) - y)^2$$
+**Q函数近似**:
+用神经网络 $Q(s,a;\theta)$ 逼近真实最优 $Q^*(s,a)$
 
-### 3.5 最终更新规则
-$$\theta \leftarrow \theta - \alpha \cdot \nabla_\theta (Q(s,a|\theta) - (r + \gamma\max_{a'}Q(s',a'|\theta^-)))^2$$
+**经验回放益处**:
+- 打破样本间时间相关性
+- 提高数据利用率
+
+**目标网络作用**:
+- 目标 $y_j$ 固定 $\theta^-$ 一段时间
+- 避免训练振荡和发散
+
+### 3.5 算法步骤
+
+```python
+# DQN 伪代码
+# 1. 初始化
+Q网络: Q(s,a|θ)
+目标网络: Q(s,a|θ-) = Q(s,a|θ)
+经验回放: D
+
+# 2. 主循环
+for episode in episodes:
+    s = env.reset()
+    
+    for step in steps:
+        # 探索
+        if random < ε:
+            a = random_action()
+        else:
+            a = argmax_a Q(s,a)
+        
+        # 执行
+        s', r, done = env.step(a)
+        D.push(s,a,r,s',done)
+        
+        # 更新
+        if len(D) > batch_size:
+            minibatch = sample(D)
+            
+            # 目标Q值
+            y = r
+            if not done:
+                y += γ * max_a Q(s',a|θ-)
+            
+            # TD误差
+            loss = (y - Q(s,a|θ))^2
+            
+            # 更新
+            gradient_descent(loss)
+        
+        # 目标网络更新
+        if step % C == 0:
+            θ- = θ
+        
+        s = s'
+```
+
+---
 
 ## 4. 训练过程
 
-### 4.1 数据预处理
-- 图像预处理（210x210, 灰度化, 缩放84x84）
-- 状态叠加（4帧历史）
-- 奖励裁剪[-1,1]
-
-### 4.2 参数初始化
-- Adam优化器，学习率0.00025
-- 经验回放缓冲区大小10^6
-- 目标网络更新周期50000步
-
-### 4.3 迭代
+### 4.1 实现代码
 
 ```python
-for step in range(num_steps):
-    # 1. 选择动作
-    if random() < epsilon:
-        a = random_action()
-    else:
-        a = argmax(Q(s))
-    
-    # 2. 执行
-    s2, r, done = env.step(a)
-    replay.push(s, a, r, s2, done)
-    s = s2
-    
-    # 3. 每4步更新
-    if step % 4 == 0:
-        batch = replay.sample(32)
-        
-        y = batch.r + gamma * max(Q_target(batch.s2))
-        loss = (Q(batch.s, batch.a) - y)^2
-        optimizer.step()
-    
-    # 4. 更新目标网络
-    if step % target_update_freq == 0:
-        target.load(state_dict)
-```
-
-### 4.4 收敛
-- loss下降
-- Q值收敛
-- reward plateau
-
-### 4.5 超参数
-| 参数 | 范围 |
-|------|------|
-| lr | 0.0001-0.001 |
-| gamma | 0.99-0.999 |
-| eps_start | 1.0 |
-| eps_end | 0.1 |
-| eps_decay | 10^6 |
-| buffer | 10^5-10^6 |
-| batch | 32-64 |
-
-## 5. 应用场景
-
-### 5.1 典型
-- Atari游戏
-- 棋类游戏
-- 机器人抓取
-
-### 5.2 适用
-- 离散动作
-- 高维状态
-- off-policy可
-
-### 5.3 不适用
-- 连续动作
-- 完全可微环境
-
-## 6. 优缺点
-
-### 6.1 优点
-1. 可处理高维视觉输入
-2. off-policy效率高
-3. 稳定性好
-4. 端到端学习
-
-### 6.2 缺点
-1. 离散动作
-2. 可能过估计
-3. 超参数敏感
-
-### 6.3 对比
-| 算法 | 动作 | 稳定性 | 效率 |
-|------|------|--------|------|
-| Q表 | 离散 | 很高 | 低 |
-| DQN | 离散 | 高 | 高 |
-| DDPG | 连续 | 中 | 高 |
-
-## 7. 调库实现
-
-### 7.1 环境
-```bash
-pip install numpy pandas matplotlib gymnasium stable-baselines3 torch
-```
-
-### 7.2 代码
-```python
 """
-DQN - CartPole
+DQN 完整实现 (PyTorch)
 """
-import numpy as np
-import matplotlib.pyplot as plt
-from stable_baselines3 import DQN
-from stable_baselines3.common.callbacks import EvalCallback
-import gymnasium as gym
 
-env = gym.make('CartPole-v1')
-eval_env = gym.make('CartPole-v1')
-
-model = DQN(
-    'MlpPolicy',
-    env,
-    learning_rate=0.0005,
-    buffer_size=50000,
-    gamma=0.99,
-    exploration_fraction=0.1,
-    exploration_final_eps=0.05,
-    verbose=1
-)
-
-print("训练...")
-model.learn(total_timesteps=50000, progress_bar=True)
-model.save("dqn_cartpole")
-
-# 评估
-obs, _ = eval_env.reset()
-total = 0
-for _ in range(200):
-    a, _ = model.predict(obs, deterministic=True)
-    obs, r, ter, tru, _ = eval_env.step(a)
-    total += r
-    if ter or tru:
-        break
-print(f"评估: {total}")
-
-plt.figure(figsize=(10,4))
-plt.plot([i*0.5 + np.random.randn()*20 for i in range(100)])
-plt.xlabel('Episode')
-plt.ylabel('Reward')
-plt.title('DQN Training')
-plt.grid(True)
-plt.savefig('dqn_result.png')
-plt.show()
-
-env.close()
-eval_env.close()
-```
-
-### 7.3 输出
-```
-Episode 1: reward=15
-Episode 50: reward=180
-Episode 100: reward=500
-评估: 500
-```
-
-## 8. 手工实现
-
-### 8.1 代码
-```python
-"""
-DQN手工实现
-"""
-import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
-import gymnasium as gym
+import numpy as np
 from collections import deque
 import random
-import matplotlib.pyplot as plt
 
-torch.manual_seed(42)
-np.random.seed(42)
+class ReplayBuffer:
+    """经验回放"""
+    def __init__(self, capacity=100000):
+        self.buffer = deque(maxlen=capacity)
+    
+    def push(self, state, action, reward, next_state, done):
+        self.buffer.append((state, action, reward, next_state, done))
+    
+    def sample(self, batch_size):
+        batch = random.sample(self.buffer, batch_size)
+        state, action, reward, next_state, done = zip(*batch)
+        return (np.array(state), np.array(action), 
+                np.array(reward), np.array(next_state), 
+                np.array(done))
+    
+    def __len__(self):
+        return len(self.buffer)
 
-class DQN(nn.Module):
-    def __init__(self, state_dim, action_dim, hidden=64):
+
+class QNetwork(nn.Module):
+    """Q网络"""
+    def __init__(self, state_dim, action_dim, hidden_dim=256):
         super().__init__()
+        
+        # 图像输入: (4,84,84) -> 扁平化
+        self.conv = nn.Sequential(
+            nn.Conv2d(4, 32, 8, stride=4),
+            nn.ReLU(),
+            nn.Conv2d(32, 64, 4, stride=2),
+            nn.ReLU(),
+            nn.Conv2d(64, 64, 3, stride=1),
+            nn.ReLU(),
+        )
+        
+        # 全连接层
+        self.fc = nn.Sequential(
+            nn.Linear(64 * 7 * 7, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, action_dim)
+        )
+    
+    def forward(self, state):
+        # 处理图像输入
+        x = self.conv(state)
+        x = x.view(x.size(0), -1)
+        return self.fc(x)
+
+
+class DQN:
+    """DQN算法"""
+    
+    def __init__(self, state_dim, action_dim, 
+                 hidden_dim=256, gamma=0.99, lr=1e-4,
+                 buffer_size=100000, target_update_freq=1000):
+        self.action_dim = action_dim
+        self.gamma = gamma
+        self.target_update_freq = target_update_freq
+        
+        # Q网络
+        self.q_net = QNetwork(state_dim, action_dim, hidden_dim)
+        self.target_net = QNetwork(state_dim, action_dim, hidden_dim)
+        self.optimizer = optim.Adam(self.q_net.parameters(), lr=lr)
+        
+        # 复制参数到目标网络
+        self.target_net.load_state_dict(self.q_net.state_dict())
+        
+        # 经验回放
+        self.replay_buffer = ReplayBuffer(buffer_size)
+        
+        # 步数计数
+        self.steps = 0
+    
+    def select_action(self, state, epsilon=0.0):
+        """ε-greedy动作选择"""
+        if random.random() < epsilon:
+            return random.randint(0, self.action_dim - 1)
+        
+        with torch.no_grad():
+            q_values = self.q_net(torch.FloatTensor(state).unsqueeze(0))
+            return q_values.argmax(dim=-1).item()
+    
+    def update(self, batch_size=32):
+        """更新Q网络"""
+        if len(self.replay_buffer) < batch_size:
+            return {}
+        
+        # 采样
+        states, actions, rewards, next_states, dones = self.replay_buffer.sample(batch_size)
+        
+        states = torch.FloatTensor(states)
+        actions = torch.LongTensor(actions)
+        rewards = torch.FloatTensor(rewards)
+        next_states = torch.FloatTensor(next_states)
+        dones = torch.FloatTensor(dones)
+        
+        # 当前Q值
+        current_q = self.q_net(states).gather(1, actions.unsqueeze(1)).squeeze(1)
+        
+        # 目标Q值
+        with torch.no_grad():
+            next_q = self.target_net(next_states).max(1)[0]
+            target_q = rewards + (1 - dones) * self.gamma * next_q
+        
+        # TD误差
+        loss = F.mse_loss(current_q, target_q)
+        
+        # 更新
+        self.optimizer.zero_grad()
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.q_net.parameters(), 1.0)
+        self.optimizer.step()
+        
+        # 目标网络更新
+        self.steps += 1
+        if self.steps % self.target_update_freq == 0:
+            self.target_net.load_state_dict(self.q_net.state_dict())
+        
+        return {'loss': loss.item()}
+
+
+# 训练函数
+def train_dqn(env, agent, num_episodes=500, batch_size=32,
+              epsilon_start=1.0, epsilon_end=0.1, epsilon_decay=50000):
+    """训练DQN"""
+    rewards = []
+    epsilon = epsilon_start
+    
+    for episode in range(num_episodes):
+        state = env.reset()
+        episode_reward = 0
+        
+        for step in range(env.max_steps):
+            # ε衰减
+            epsilon = max(epsilon_end, epsilon_start - episode * (epsilon_start - epsilon_end) / epsilon_decay)
+            
+            # 选择动作
+            action = agent.select_action(state, epsilon)
+            
+            # 执行
+            next_state, reward, done, _ = env.step(action)
+            
+            # 存储
+            agent.replay_buffer.push(state, action, reward, next_state, float(done))
+            
+            # 更新
+            agent.update(batch_size)
+            
+            state = next_state
+            episode_reward += reward
+            
+            if done:
+                break
+        
+        rewards.append(episode_reward)
+        
+        if episode % 50 == 0:
+            avg_reward = np.mean(rewards[-50:])
+            print(f"Episode {episode}: avg_reward={avg_reward:.1f}, ε={epsilon:.3f}")
+    
+    return rewards
+```
+
+---
+
+## 5. 超参数
+
+| 超参数 | 作用 | 推荐范围 |
+|--------|------|----------|
+| $\gamma$ | 折扣因子 | 0.99 |
+| $\epsilon_{start}$ | 初始探索率 | 1.0 |
+| $\epsilon_{end}$ | 最终探索率 | 0.1 |
+| $\epsilon_{decay}$ | 探索衰减步数 | 50000 |
+| buffer_size | 回放缓冲区大小 | 100000 |
+| target_update_freq | 目标网络更新频率 | 1000 |
+
+---
+
+## 6. 应用场景
+
+### 6.1 典型应用
+- Atari游戏
+- 机器人控制
+- 资源调度
+
+### 6.2 适用场景
+- 离散动作空间
+- 高维状态(图像)
+- 需要样本高效
+
+---
+
+## 7. 优缺点
+
+### 7.1 优点
+| 优点 | 说明 |
+|------|------|
+| 端到端学习 | 直接从图像学习 |
+| 经验回放 | 数据高效 |
+| 稳定训练 | 目标网络 |
+
+### 7.2 缺点
+| 缺点 | 缓解 |
+|------|------|
+| 过估计 | Double DQN |
+| 离散动作 | DDPG(连续) |
+
+---
+
+## 8. 调库实现
+
+```python
+"""
+使用Stable-Baselines3
+"""
+from stable_baselines3 import DQN
+from stable_baselines3.common.evaluation import evaluate_policy
+
+model = DQN('CnnPolicy', 'BreakoutNoFrameskip-v4')
+model.learn(total_timesteps=100000)
+
+# 评估
+mean_reward, std_reward = evaluate_policy(model, model.get_env(), n_eval_episodes=10)
+```
+
+---
+
+## 9. 手工实现
+
+```python
+"""
+DQN 核心简化版
+"""
+
+import torch
+import torch.nn as nn
+import numpy as np
+from collections import deque
+import random
+
+class SimpleDQN:
+    """简化DQN"""
+    
+    def __init__(self, state_dim, action_dim, hidden=128):
+        self.action_dim = action_dim
+        
+        # Q网络
         self.net = nn.Sequential(
             nn.Linear(state_dim, hidden),
             nn.ReLU(),
@@ -269,262 +434,163 @@ class DQN(nn.Module):
             nn.ReLU(),
             nn.Linear(hidden, action_dim)
         )
-    
-    def forward(self, state):
-        return self.net(state)
-
-class ReplayBuffer:
-    def __init__(self, capacity):
-        self.buffer = deque(maxlen=capacity)
-    
-    def push(self, s, a, r, s2, d):
-        self.buffer.append((s, a, r, s2, d))
-    
-    def sample(self, bsz):
-        batch = random.sample(self.buffer, bsz)
-        s, a, r, s2, d = zip(*batch)
-        return (np.array(s), np.array(a), np.array(r), 
-                np.array(s2), np.array(d))
-
-class DQNAgent:
-    def __init__(self, state_dim, action_dim,
-                 lr=0.001, gamma=0.99, 
-                 eps_start=1.0, eps_end=0.05, eps_decay=50000):
-        self.state_dim = state_dim
-        self.action_dim = action_dim
-        self.gamma = gamma
-        self.epsilon = eps_start
-        self.epsilon_start = eps_start
-        self.epsilon_end = eps_end
-        self.epsilon_decay = eps_decay
+        self.opt = torch.optim.Adam(self.net.parameters(), lr=1e-3)
+        
+        # 目标网络
+        self.target = nn.Sequential(
+            nn.Linear(state_dim, hidden),
+            nn.ReLU(),
+            nn.Linear(hidden, hidden),
+            nn.ReLU(),
+            nn.Linear(hidden, action_dim)
+        )
+        self.target.load_state_dict(self.net.state_dict())
+        
+        self.replay = deque(maxlen=10000)
+        self.gamma = 0.99
         self.steps = 0
-        
-        # 网络
-        self.q_net = DQN(state_dim, action_dim)
-        self.target_net = DQN(state_dim, action_dim)
-        self.target_net.load_state_dict(self.q_net.state_dict())
-        
-        self.optimizer = optim.Adam(self.q_net.parameters(), lr=lr)
-        self.buffer = ReplayBuffer(100000)
     
-    def select_action(self, state, evaluate=False):
-        if not evaluate and random.random() < self.epsilon:
-            return random.randint(0, self.action_dim - 1)
-        
+    def act(self, s, eps=0.1):
+        if random.random() < eps:
+            return random.randint(0, self.action_dim-1)
         with torch.no_grad():
-            q = self.q_net(torch.FloatTensor(state).unsqueeze(0))
-            return q.argmax().item()
+            return self.net(torch.FloatTensor(s)).argmax().item()
     
-    def train_step(self, batch_size=32):
-        if len(self.buffer) < batch_size:
+    def push(self, *args):
+        self.replay.append(args)
+    
+    def update(self, batch=32):
+        if len(self.replay) < batch:
             return
         
-        s, a, r, s2, d = self.buffer.sample(batch_size)
+        batch = random.sample(self.replay, batch)
+        s, a, r, s2, done = map(np.array, zip(*batch))
+        
         s = torch.FloatTensor(s)
         a = torch.LongTensor(a)
         r = torch.FloatTensor(r)
         s2 = torch.FloatTensor(s2)
-        d = torch.FloatTensor(d)
+        done = torch.FloatTensor(done)
         
-        # 当前Q值
-        q = self.q_net(s).gather(1, a.unsqueeze(-1)).squeeze(-1)
+        # 当前Q
+        q = self.net(s).gather(1, a.unsqueeze(1))
         
-        # 目标Q值
+        # 目标Q
         with torch.no_grad():
-            max_q = self.target_net(s2).max(1)[0]
-            target = r + (1-d) * self.gamma * max_q
+            target_q = r + self.gamma * self.target(s2).max(1)[0] * (1-done)
         
-        # 损失和更新
-        loss = nn.MSELoss()(q, target)
+        loss = nn.MSELoss()(q.squeeze(), target_q)
         
-        self.optimizer.zero_grad()
+        self.opt.zero_grad()
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.q_net.parameters(), 1)
-        self.optimizer.step()
+        self.opt.step()
         
-        # 更新epsilon
         self.steps += 1
-        self.epsilon = max(self.epsilon_end, 
-                         self.epsilon_start - self.steps/self.epsilon_decay)
+        if self.steps % 100 == 0:
+            self.target.load_state_dict(self.net.state_dict())
         
         return loss.item()
-    
-    def update_target(self):
-        self.target_net.load_state_dict(self.q_net.state_dict())
+```
 
-def train_dqn(env_id='CartPole-v1', eps=200):
-    env = gym.make(env_id)
-    state_dim = env.observation_space.shape[0]
-    action_dim = env.action_space.n
-    
-    agent = DQNAgent(state_dim, action_dim)
-    rewards = []
-    
-    for ep in range(eps):
-        s, _ = env.reset()
-        total = 0
-        for step in range(200):
-            a = agent.select_action(s)
-            s2, r, ter, tru, _ = env.step(a)
-            
-            # 存储
-            agent.buffer.push(s, a, r, s2, 1 if ter or tru else 0)
-            
-            # 训练
-            if step % 4 == 0:
-                agent.train_step(32)
-                if step % 100 == 0:
-                    agent.update_target()
-            
-            s = s2
-            total += r
-            if ter or tru:
-                break
-        
-        rewards.append(total)
-        if (ep+1)%20==0:
-            print(f"Episode {ep+1}: {total}")
-    
-    env.close()
-    return rewards
+---
 
-def plot_results(rewards):
+## 10. 可视化
+
+```python
+import matplotlib.pyplot as plt
+import numpy as np
+
+def plot_dqn_results(rewards, save_path='dqn.png'):
     plt.figure(figsize=(10,4))
-    plt.plot(rewards)
+    plt.plot(rewards, alpha=0.3)
+    smoothed = np.convolve(rewards, np.ones(50)/50, mode='valid')
+    plt.plot(smoothed, label='MA(50)')
     plt.xlabel('Episode')
     plt.ylabel('Reward')
     plt.title('DQN Training')
-    plt.grid(True)
-    plt.savefig('dqn_manual.png')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.savefig(save_path)
     plt.show()
-
-if __name__ == '__main__':
-    rewards = train_dqn()
-    plot_results(rewards)
 ```
 
-### 8.2 对比
+---
 
-| 指标 | 手工 | 库 |
-|------|------|-----|
-| 效率 | 200eps | 100eps |
-| 代码 | 多 | 少 |
+## 11. 评估
 
-## 9. 可视化
-
-### 9.1 参数
 ```python
-plt.figure(figsize=(8,4))
-eps = [0.01, 0.05, 0.1, 0.5]
-r = [480, 500, 450, 200]
-plt.bar(eps, r)
-plt.xlabel('epsilon_end')
-plt.ylabel('Final Reward')
-plt.title('Explore参数')
-plt.grid(True)
-plt.savefig('dqn_eps.png')
-plt.show()
-```
-
-### 9.2 性能
-```python
-fig, ax = plt.subplots(2,2, figsize=(10,8))
-ax[0,0].plot(rewards)
-ax[0,0].set_title('Training Reward')
-
-ax[0,1].plot(q_loss)
-ax[0,1].set_title('Q Loss')
-
-ax[1,0].plot(epsilon_hist)
-ax[1,0].set_title('Epsilon Decay')
-
-ax[1,1].bar(['Left','Right'], [0.3, 0.7])
-ax[1,1].set_title('Action Distribution')
-plt.tight_layout()
-plt.savefig('dqn_perf.png')
-plt.show()
-```
-
-## 10. 评估
-
-### 10.1 指标
-- 平均奖励
-- 最后N个episode的平均
-
-### 10.2 代码
-```python
-def evaluate(model, env, n=10):
+def evaluate(agent, env, n_episodes=10):
+    """评估"""
     rewards = []
-    for _ in range(n):
-        s, _ = env.reset()
-        total = 0
+    for _ in range(n_episodes):
+        s = env.reset()
+        r = 0
         done = False
         while not done:
-            a, _ = model.predict(s, deterministic=True)
-            s, r, done, _ = env.step(a)
-            total += r
-        rewards.append(total)
-    return np.mean(rewards), np.std(rewards)
+            a = agent.act(s, 0)
+            s, reward, done, _ = env.step(a)
+            r += reward
+        rewards.append(r)
+    return {'mean': np.mean(rewards), 'std': np.std(rewards)}
 ```
 
-## 11. 常见问题
+---
 
-### 11.1 数据
-- 内存不足
-- 采样偏差
+## 12. 常见问题
 
-### 11.2 模型
-- 过估计
-- 不收敛
+### 12.1 Q值过估计
+- 原因: $\max$ 操作导致过估计
+- 缓解: Double DQN
 
-### 11.3 调参
-- 学习率太大
-- epsilon衰减太快
+### 12.2 训练不稳定
+- 使用目标网络
+- 梯度裁剪
 
-## 12. 总结
+---
 
-### 12.1 要点
-1. 深度神经网络逼近Q
-2. 经验回放打破相关性
-3. 目标网络稳定训练
-4. ε-greedy探索
+## 13. 总结
 
-### 12.2 公式
-- $y = r + \gamma\max_{a'} Q(s',a'|\theta^-)$
-- $\theta \leftarrow \theta - \alpha\nabla_\theta (Q - y)^2$
+### 核心要点
+1. **CNN近似Q函数**
+2. **经验回放**
+3. **��标网络**稳定训练
+4. **ε-greedy**探索
 
-### 12.3 联系
-- 前置：Q-learning
-- 后续：Double DQN, Dueling DQN
+### 算法链
+```
+DQN → Double DQN → Dueling DQN → Rainbow DQN
+```
 
-## 13. 练习题与思考题
+---
 
-### 13.1 基础
-1. 经验回放的作用
-2. 目标网络的作用
+## 14. 练习题
 
-### 13.2 进阶
-1. 过估计问题及解决
-2. Double DQN
+**习题1**: TD误差定义
 
-### 13.3 答案
-1. 打破数据相关性
-2. 提供稳定目标
-3. 使用Double DQN选择或分离
+<details>
+<summary>答案</summary>
 
-## 14. 学习路径建议
+$$L(\theta) = \mathbb{E}[(r + \gamma \max_{a'}Q(s',a';\theta^-) - Q(s,a;\theta))^2]$$
 
-### 14.1 前置
-- Q-learning
+</details>
 
-### 14.2 平行
-- DDPG
+**习题2**: 目标网络作用
 
-### 14.3 进阶
-- Double DQN
-- Rainbow
-- R2D2
+<details>
+<summary>答案</summary>
 
-### 14.4 资源
-- Mnih et al. "Playing Atari with Deep RL"
-- 《Deep RL》书籍
+固定目标值,避免训练时目标不断变化导致不稳定。
+
+</details>
+
+---
+
+## 15. 学习路径
+
+- **初级**: Q学习基础,运行Atari demo
+- **中级**: 理解CNN架构,调参
+- **高级**: Double DQN, Rainbow
+
+### 推荐资源
+- **论文**: Mnih et al. "Playing Atari with Deep RL" (2013)
+- **代码**: https://github.com/DLR-RM/stable-baselines3

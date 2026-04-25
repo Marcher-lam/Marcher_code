@@ -289,38 +289,126 @@ def visualize():
 
 ## 12. 练习题与思考题
 
-### 12.1 基础练习
+### 12.1 选择题
 
-1. 蒸馏 vs 量化
-2. 温度 T 的作用
+1. DistilBERT的层数是BERT的：
+   - A) 相同
+   - B) 一半
+   - C) 两倍
 
-### 12.2 思考题
+2. 蒸馏损失不包含：
+   - A) MLM
+   - B) BERT的Embedding
+   - C) 对抗损失
 
-1. 蒸馏极限在哪里
+3. 训练时的教师模型需要：
+   - A) 随机初始化
+   - B) 预训练权重
+   - C) 无所谓
+
+### 12.2 简答题
+
+1. 解释三重损失函数的作用？
+2. 为什么层数减半能保持效果？
+
+### 12.3 编程题
+
+1. 使用transformers加载DistilBERT
+2. 比较BERT和DistilBERT推理速度
+
+---
+
+## 13. 常见问题与易错点
+
+### Q1: DistilBERT支持中文吗？
+
+**答案**：支持，支持多语言版本distilbert-base-multilingual-cased。
+
+### Q2: 如何进一步压缩？
+
+**答案**：结合量化（INT8）和剪枝。
+
+### Q3: 可以微调吗？
+
+**答案**：可以，和BERT类似的方式微调。
+
+### Q4: 精度损失多少？
+
+**答案**：约1-3%，但在可接受范围内。
+
+### Q5: 适用于哪些任务？
+
+**答案**：文本分类、问答、序列标注等。
 
 ---
 
 ## 14. 学习路径建议
 
-### 入门阶段
-
-1. BERT 基础
-2. 知识蒸馏理解
-
-### 进阶阶段
-
-1. DistilBERT 原理
-2. 实践蒸馏
-
-### 高级阶段
-
-1. 改进蒸馏
-2. 其他轻量模型
-
-**推荐路线**：
+### 14.1 进阶路径
 
 ```
-BERT → DistilBERT → TinyBERT → MobileBERT
+BERT基础
+    ↓
+知识蒸馏
+    ↓
+DistilBERT原理
+    ↓
+实践蒸馏
+    ↓
+TinyBERT/MobileBERT
 ```
 
-**DistilBERT 是轻量 BERT 的经典，熟练掌握它对模型部署很重要。**
+### 14.2 相关算法
+
+| 算法 | 关系 |
+|------|------|
+| BERT | 教师模型 |
+| TinyBERT | 蒸馏改进 |
+| MobileBERT | 极致压缩 |
+| ALBERT | 共享参数 |
+
+### 14.3 扩展阅读
+
+1. Sanh et al. (2019). DistilBERT
+2. Wang et al. (2020). TinyBERT
+
+---
+
+## 15. 学习总结
+
+### 15.1 核心要点
+
+| 要点 | 内容 |
+|------|------|
+| 核心创新 | 蒸馏学习 |
+| 三重损失 | MLM+KD+Cosine |
+| 压缩效果 | 60%速度, 40%参数 |
+
+### 15.2 公式汇总
+
+学生损失：
+$$\mathcal{L}_S = \lambda \mathcal{L}_{MLM} + (1-\lambda) \mathcal{L}_{KD}$$
+
+蒸馏损失：
+$$\mathcal{L}_{KD} = \sum_i \text{KL}(p_i^T || p_i^S) = \sum_i \sum_j p_j^T \log \frac{p_j^T}{p_j^S}$$
+
+---
+
+## 附录
+
+### A. 超参数速查
+
+| 参数 | 推荐值 |
+|------|--------|
+| n_layers | 6 |
+| dim | 768 |
+| attention_heads | 12 |
+| temperature | 2.0 |
+
+### B. 参考
+
+1. Sanh et al. (2019). DistilBERT. arXiv:1910.01008
+
+---
+
+**文档结束**

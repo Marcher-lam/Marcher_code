@@ -386,3 +386,236 @@ $$最终结果 = f(第一计算, 第二计算) = [最终值]$$
 ## 14. 学习路径建议建议
 
 学习对比学习建议按照以下路径进行：先理解无监督学习的概念；学习InfoNCE损失；理解SimCLR和MoCo的框架；在小数据集上实现对比学习；应用到实际任务中。
+
+---
+
+## 补充材料：对比学习变体与扩展
+
+### A1. SimCLR v2与骨干网络改进
+
+SimCLR v2引入了以下改进：
+
+**非对称projection head**：
+$$h_i = f_2(f_1(z_i))$$
+
+其中$z_i$是projection head的输出，$h_i$是新的表示。
+
+**动量更新**：
+$$f_k \leftarrow \tau f_k + (1-\tau)f_q$$
+
+使用更大的projection head（2-3层）并结合MoCo的动量更新策略。
+
+### A2. 对比学习在小样本场景的应用
+
+对于小样本数据集，可以采用以下策略：
+
+**预训练+微调**：
+1. 在辅助大数据集上预训练对比学习模型
+2. 在目标任务的小样本上微调
+
+**特征增强**：
+- 使用AutoAugment等自动增强策略
+- 结合Mixup和CutMix
+
+**原型对比**：
+$$L = -\log \frac{\exp(sim(c_i, c_j)/\tau)}{\sum_{k} \exp(sim(c_i, c_k)/\tau)}$$
+
+其中$c_i$是类原型。
+
+### A3. 对比学习与下游任务的结合
+
+**线性探测**：
+冻结编码器，训练线性分类器，通常能达到70%以上的准确率。
+
+**微调**：
+解冻部分层进行微调，通常能获得更好的性能。
+
+**特征适配器**：
+```python
+class Adapter(nn.Module):
+    def __init__(self, dim, reduction=4):
+        super().__init__()
+        self.adapter = nn.Sequential(
+            nn.Linear(dim, dim // reduction),
+            nn.ReLU(),
+            nn.Linear(dim // reduction, dim)
+        )
+    
+    def forward(self, x):
+        return x + self.adapter(x)
+```
+
+### A4. 对比学习的评估协议
+
+```python
+def evaluate_linear_probe(encoder, train_loader, test_loader, num_classes=10):
+    """线性探测评估"""
+    train_features = []
+    train_labels = []
+    for x, y in train_loader:
+        with torch.no_grad():
+            feat = encoder(x)
+        train_features.append(feat)
+        train_labels.append(y)
+    
+    classifier = nn.Linear(feat_dim, num_classes)
+    train_features = torch.cat(train_features)
+    train_labels = torch.cat(train_labels)
+    
+    optimizer = torch.optim.SGD(classifier.parameters(), lr=0.1, momentum=0.9)
+    for epoch in range(100):
+        optimizer.zero_grad()
+        loss = nn.functional.cross_entropy(classifier(train_features), train_labels)
+        loss.backward()
+        optimizer.step()
+    
+    correct = 0
+    total = 0
+    for x, y in test_loader:
+        with torch.no_grad():
+            feat = encoder(x)
+            pred = classifier(feat).argmax(dim=-1)
+        correct += (pred == y).sum().item()
+        total += y.size(0)
+    
+    return correct / total
+
+
+def evaluate_finetune(encoder, train_loader, test_loader, num_classes=10):
+    """微调评估"""
+    for param in encoder.parameters():
+        param.requires_grad = True
+    
+    optimizer = torch.optim.SGD(encoder.parameters(), lr=0.01, momentum=0.9)
+    
+    for epoch in range(50):
+        for x, y in train_loader:
+            optimizer.zero_grad()
+            feat = encoder(x)
+            loss = nn.functional.cross_entropy(feat, y)
+            loss.backward()
+            optimizer.step()
+    
+    encoder.eval()
+    correct = 0
+    total = 0
+    for x, y in test_loader:
+        with torch.no_grad():
+            pred = encoder(x).argmax(dim=-1)
+        correct += (pred == y).sum().item()
+        total += y.size(0)
+    
+    return correct / total
+```
+
+### A5. 对比学习的可视化
+
+```python
+import numpy as np
+import matplotlib.pyplot as plt
+
+def visualize_learned_representations():
+    """可视化对比学习学到的表示"""
+    np.random.seed(42)
+    
+    centers = {
+        0: np.array([0, 0]),
+        1: np.array([5, 0]),
+        2: np.array([0, 5]),
+        3: np.array([5, 5])
+    }
+    
+    samples_per_class = 100
+    X = []
+    y = []
+    
+    for label, center in centers.items():
+        for _ in range(samples_per_class):
+            point = center + np.random.randn(2) * 1.5
+            X.append(point)
+            y.append(label)
+    
+    X = np.array(X)
+    y = np.array(y)
+    
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+    
+    ax = axes[0]
+    colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728']
+    for i in range(4):
+        mask = y == i
+        ax.scatter(X[mask, 0], X[mask, 1], c=colors[i], alpha=0.5, label=f'Class {i}')
+    ax.set_title('Original Features')
+    ax.legend()
+    
+    X_embedded = X + np.random.randn(*X.shape) * 0.3
+    
+    ax = axes[1]
+    for i in range(4):
+        mask = y == i
+        ax.scatter(X_embedded[mask, 0], X_embedded[mask, 1], c=colors[i], alpha=0.5)
+    ax.set_title('Encoded Representations')
+    
+    ax = axes[2]
+    X_norm = X / (np.linalg.norm(X, axis=1, keepdims=True) + 1e-10)
+    similarity = X_norm @ X_norm.T
+    
+    im = ax.imshow(similarity[:200, :200], cmap='RdBu_r', vmin=-1, vmax=1)
+    ax.set_title('Feature Similarity Matrix')
+    plt.colorbar(im, ax=ax)
+    
+    plt.tight_layout()
+    plt.savefig('contrastive_representations_viz.png', dpi=150)
+    plt.show()
+
+
+def plot_augmentation_effect():
+    """可视化数据增强的效果"""
+    np.random.seed(42)
+    
+    augmentations = [
+        'Original', 'Random Crop', 'Color Jitter', 
+        'Gaussian Blur', 'Solarize', 'All Transforms'
+    ]
+    accuracies = [60.0, 65.2, 67.8, 69.5, 66.3, 72.5]
+    
+    plt.figure(figsize=(10, 6))
+    bars = plt.bar(augmentations, accuracies, color='steelblue')
+    plt.ylabel('Linear Probe Accuracy (%)')
+    plt.title('Effect of Data Augmentations on SimCLR')
+    plt.ylim(50, 80)
+    plt.xticks(rotation=45, ha='right')
+    
+    for bar, acc in zip(bars, accuracies):
+        bar.set_height(acc)
+        plt.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.5, 
+                f'{acc:.1f}%', ha='center', va='bottom', fontsize=9)
+    
+    plt.tight_layout()
+    plt.savefig('augmentation_effect.png', dpi=150)
+    plt.show()
+
+
+def plot_batch_size_vs_accuracy():
+    """可视化batch size对准确率的影响"""
+    batch_sizes = [64, 128, 256, 512, 1024, 2048, 4096]
+    accuracies = [62.5, 65.8, 68.2, 70.5, 72.8, 74.2, 75.5]
+    
+    plt.figure(figsize=(10, 6))
+    plt.plot(batch_sizes, accuracies, 'o-', linewidth=2, markersize=8)
+    plt.xlabel('Batch Size (log scale)')
+    plt.ylabel('Linear Probe Accuracy (%)')
+    plt.title('Effect of Batch Size on Contrastive Learning')
+    plt.xscale('log')
+    plt.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.savefig('batch_size_effect.png', dpi=150)
+    plt.show()
+
+
+if __name__ == '__main__':
+    visualize_learned_representations()
+    plot_augmentation_effect()
+    plot_batch_size_vs_accuracy()
+```

@@ -267,3 +267,80 @@ benchmark_parallel(model, X_test, y_test)
 3. 学习 SHAP 值理论，理解更精细的特征归因方法
 4. 在实际项目中对比多种特征重要度方法
 5. 阅读论文：Permutation Importance（Breiman 2001）、SHAP（Lundberg 2017）
+
+# 十一、核心数学公式
+
+## 1. 特征重要度得分公式
+
+对于特征 $X_i$，其 Permutation Importance 得分定义为原始模型性能与打乱该特征后模型性能的差值：
+
+$$
+\text{Importance}_i = \text{Metric}_{\text{original}} - \frac{1}{R}\sum_{r=1}^{R} \text{Metric}_{\text{shuffled}}^{(r)}(X_i)
+$$
+
+其中 $R$ 是重复打乱的次数，$\text{Metric}$ 可以是 AUC、Log Loss 等评估指标。得分越大，说明打乱该特征后模型性能下降越多，即该特征越重要。
+
+更严谨地，用数学期望表示：
+
+$$
+I(X_i) = \mathbb{E}\left[s\left(Y, \hat{f}(X)\right)\right] - \mathbb{E}_{\pi}\left[s\left(Y, \hat{f}(X_{\pi(i)}^{(1)}, \ldots, X_{\pi(i)}^{(n)})\right)\right]
+$$
+
+其中 $\hat{f}$ 是训练好的模型，$s(\cdot)$ 是性能评估函数，$\pi(i)$ 表示对第 $i$ 个特征进行随机排列。
+
+## 2. 统计显著性检验公式
+
+由于打乱操作引入了随机性，需要检验重要度得分是否具有统计显著性。常用方法是基于多次重复的结果构建置信区间：
+
+$$
+\text{CI}_{95\%}(I_i) = \bar{I}_i \pm 1.96 \cdot \frac{\hat{\sigma}_i}{\sqrt{R}}
+$$
+
+其中 $\bar{I}_i$ 是 $R$ 次重复的平均重要度，$\hat{\sigma}_i$ 是重要度的标准差。
+
+也可以使用配对 t 检验判断特征是否显著重要：
+
+$$
+t_i = \frac{\bar{I}_i}{\hat{\sigma}_i / \sqrt{R}}, \quad p\text{-value} = P(T_{R-1} > t_i)
+$$
+
+若 $p\text{-value} < 0.05$，则认为特征 $X_i$ 的重要度具有统计显著性。
+
+## 3. 重要度估计的方差分析
+
+Permutation Importance 的估计方差来自两方面：打乱的随机性和测试集的采样。总方差为：
+
+$$
+\text{Var}(\hat{I}_i) = \underbrace{\text{Var}_{\pi}\left(\text{Metric}_{\text{shuffled}}(X_i)\right) / R}_{\text{打乱方差}} + \underbrace{\text{Var}_{\text{data}}(\text{Metric}) / N_{\text{test}}}_{\text{数据方差}}
+$$
+
+为降低方差，建议：
+- 增加重复次数 $R$（通常 $R \geq 10$），可减少打乱引起的方差
+- 增大测试集样本量 $N_{\text{test}}$，可减少数据采样引起的方差
+- 使用分层打乱（Stratified Permutation），保持特征的边际分布特征
+
+## 4. 考虑特征相关性的修正公式
+
+当特征 $X_i$ 和 $X_j$ 高度相关时，单独打乱 $X_i$ 的重要性会被低估。修正方法为联合打乱相关特征组：
+
+$$
+I_{group}(G) = \text{Metric}_{\text{original}} - \frac{1}{R}\sum_{r=1}^{R} \text{Metric}\left(Y, \hat{f}(X_{\pi(G)}^{(r)})\right)
+$$
+
+其中 $G$ 是相关特征组，$X_{\pi(G)}^{(r)}$ 表示对组 $G$ 内所有特征使用相同的排列进行打乱。
+
+特征 $X_i$ 的条件重要度（在控制其他特征后的边际贡献）：
+
+$$
+I_{cond}(X_i | X_{-i}) = I_{group}(\{X_i\} \cup \text{Corr}(X_i)) - \sum_{X_j \in \text{Corr}(X_i) \setminus \{X_i\}} I(X_j)
+$$
+
+## 5. 稳定性指标
+
+不同随机种子下重要度排名的稳定性可通过 Kendall's $\tau$ 或 Spearman's $\rho$ 衡量：
+
+$$
+\text{Stability} = \frac{1}{K(K-1)} \sum_{i < j} \text{Spearman}(\text{rank}_i, \text{rank}_j)
+$$
+
+其中 $K$ 是不同随机种子运行的次数，$\text{rank}_i$ 是第 $i$ 次运行的特征重要度排名。稳定性指标接近 1 表示重要度排名高度一致，结论可靠。

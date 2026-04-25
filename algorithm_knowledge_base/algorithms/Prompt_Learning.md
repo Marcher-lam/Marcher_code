@@ -1,322 +1,653 @@
 # Prompt Learning 学习文档
 
-> 通过设计提示模板引导预训练大模型，实现高效任务适配。
+> 通过设计提示模板引导预训练大模型，实现高效任务适配
 
 ---
 
 ## 1. 算法基础认知
 
-**Prompt Learning（提示学习）** 是一种利用预训练大模型能力的范式，通过设计合适的提示（prompts）来引导模型完成特定任务，无需 fine-tuning 模型参数。
+### 1.1 一句话定义
 
-### 1.1 核心思想
+Prompt Learning（提示学习）是一种利用预训练大模型能力的范式，通过设计合适的提示（prompts）来引导模型完成特定任务，无需 fine-tuning 模型参数。这种方法在2020年GPT-3出现后变得极其重要，让单个模型能够执行无数任务。
 
-传统fine-tuning：
-```
-预训练模型 → 梯度更新 → 任务模型
-```
+### 1.2 直觉类比
 
-Prompt Learning：
-```
-预训练模型 + 提示模板 → 任务输出
-```
+想象你让一个知识渊博但没专门学习某个任务的人做事：
+- **Fine-tuning**：手把手教他，每个细节都重新学
+- **Prompt Learning**：给他一个提示/例子，他自己就能理解任务
 
-### 1.2 为什么需要Prompt Learning？
+就像你和一个经验丰富的厨师说"帮我做个生日蛋糕"，他不需要详细教就能理解意思！
 
-- 大模型参数巨大，fine-tuning成本高
-- 少量样本即可触发模型能力
-- 保留模型泛化能力
+### 1.3 发展历程
 
-### 1.3 与Fine-tuning对比
+| 年份 | 里程碑 |
+|------|---------|
+| 2020 | GPT-3 few-shot能力 |
+| 2021 | Prompt Learning概念 |
+| 2021 | Auto-PT自动搜索 |
+| 2021 | P-tuning v1/v2 |
+| 2022 | InstructGPT (RLHF) |
+| 2023 | LLM prompting |
 
-| 方法 | 参数更新 | 样本需求 | 泛化能力 |
-|------|--------|----------|----------|
-| Fine-tuning | 全部/部分 | 大量 | 任务内 |
-| Prompt Learning | 0 | 少量 | 通用 |
+### 1.4 核心定位
+
+| 特性 | 说明 |
+|------|------|
+| 类型 | 少样本/零样本学习 |
+| 核心 | 提示设计 |
+| 参数 | 不更新模型 |
+| 目标 | 任务适配 |
 
 ---
 
 ## 2. 核心原理
 
-### 2.1 提示类型
+### 2.1 问题定义
+
+给定预训练模型 M，输入提示 x，预测 y：
+
+$$y = M(x)$$
+
+目标是设计好的提示 x，使模型输出正确。
+
+### 2.2 提示类型
 
 **硬提示（Hard Prompt）**：
 - 人工设计的离散文本
-- 如："The sentiment of this movie is [MASK]"
+- 例子："The sentiment of this movie is [MASK]"
+- 优点：可解释、直观
+- 缺点：需要人工、可能非最优
 
 **软提示（Soft Prompt）**：
-- 可学习的连续向量
-- 如：[v1, v2, v3, ..., vk]
+- 可学习的连续向量 [v₁, v₂, ..., vₖ]
+- 优点：自动优化、效果更好
+- 缺点：不可解释、需要训练
 
-### 2.2 模板设计
+### 2.3 提示设计
 
 ```python
-# 分类任务
-template = "This is a [SUBJ] . It was really [MASK] ."
+# 模板设计示例
+templates = {
+    "情感分类": "Review: {text}. Sentiment: [MASK].",
+    "问答": "Question: {question}? Answer: [MASK].",
+    " summarization": "Article: {article}. Summary: [MASK].",
+}
 
-# 抽取任务  
-template = "[SUBJ] is located in [LOC] . [MASK] ."
+# 答案空间映射
+label_words = {
+    "positive": ["great", "excellent", "amazing"],
+    "negative": ["terrible", "awful", "boring"],
+}
 ```
-
-### 2.3 答案空间
-
-将标签映射到词：
-- 正面 → "great"
-- 负面 → "terrible"
 
 ---
 
-## 3. 数学公式
+## 3. 数学公式与推导
 
 ### 3.1 提示推理
 
-给定输入x和提示模板T：
+给定输入 x 和提示模板 T：
 ```python
-output = model(T.format(x))
+input_text = T.format(x)
+output = model(input_text)
 ```
 
-### 3.2 软提示学习
+### 3.2 少样本学习
 
-$$\mathcal{L} = -\sum_i \log P(y_i | x_i, \theta)$$
+Few-shot 提示：
+```python
+prompt = """Example 1: Input: Great movie! Output: positive
+Example 2: Input: Boring film Output: negative
+Example 3: Input: {text} Output:"""
+```
 
-其中$\theta$只包含软提示向量
+### 3.3 软提示学习
 
-### 3.3 P-Tuning
+目标函数（只更新提示）：
+$$\mathcal{L} = -\sum_i \log P(y_i | x_i, P; \theta)$$
 
-使用LSTM编码可学习提示：
-$$h_i = LSTM(h_{i-1}, x)$$
+其中 P 是提示向量，θ 是冻结的模型参数。
+
+### 3.4 P-Tuning
+
+使用LSTM/MLP编码可学习提示：
+
+$$h_i = \text{MLP}(h_{i-1}, x)$$
 
 ---
 
-## 4. 训练过程
+## 4. PyTorch实现
 
-### 4.1 人工提示设计
-
-```python
-# 情感分析
-prompt = "The review is [ sentiment ] . The review was really [MASK] ."
-# 填充[MASK]位置获得答案
-```
-
-### 4.2 自动提示优化
+### 4.1 基础实现
 
 ```python
-# CoOp: 可学习提示
-prompt_tokens = nn.Parameter(embeddings)
-
-# 训练
-loss = task_loss(model, prompt_tokens)
-```
-
-### 4.3 少样本学习
-
-Few-shot设置：
-```python
-examples = [
-    ("Great movie!", "positive"),
-    ("Boring film", "negative"),
-]
-```
-
----
-
-## 5. 应用场景
-
-### 5.1 Text Classification
-
-情感分析、主题分类、意图识别。
-
-### 5.2 Question Answering
-
-阅读理解、问答任务。
-
-### 5.3 Text Generation
-
-文本续写、代码生成。
-
-### 5.4 Information Extraction
-
-命名实体识别、关系抽取。
-
----
-
-## 6. 调库实现（Hugging Face）
-
-```python
-from transformers import AutoModelForMaskedLM, AutoTokenizer
 import torch
+import torch.nn as nn
+from transformers import AutoModelForMaskedLM, AutoTokenizer, AutoModelForCausalLM
+
 
 class PromptLearner:
     """提示学习器"""
     
-    def __init__(self, model_name="bert-base-uncased"):
+    def __init__(self, model_name="bert-base-uncased", template="The sentiment is [MASK]."):
         self.model = AutoModelForMaskedLM.from_pretrained(model_name)
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+        self.template = template
+        self device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.model.to(self.device)
     
-    def predict(self, text, template, label_words):
+    def predict(self, text, label_words):
         """预测"""
-        # 填充模板
-        input_text = template.replace("[SUBJ]", text)
+        input_text = self.template.format(text=text)
         
-        # 编码
         inputs = self.tokenizer(input_text, return_tensors="pt")
+        inputs = {k: v.to(self.device) for k, v in inputs.items()}
         
-        # 推理
         with torch.no_grad():
             outputs = self.model(**inputs)
-            probs = outputs.logits
+            logits = outputs.logits
         
-        # 获取[MASK]位置预测
-        mask_idx = (inputs.input_ids == self.tokenizer.mask_token_id).nonzero()
-        # 取label_words中最高概率的词
+        # 获取[MASK]位置
+        mask_token_id = self.tokenizer.mask_token_id
+        mask_positions = (inputs['input_ids'] == mask_token_id).nonzero()
         
-        return label_words[top_idx]
-
-
-class CoOp:
-    """CoOp: 可学习提示"""
+        if len(mask_positions) == 0:
+            return None
+        
+        mask_pos = mask_positions[0, 1]
+        
+        # 获取label words的logit
+        word_logits = []
+        for label, words in label_words.items():
+            for word in words:
+                word_id = self.tokenizer.convert_tokens_to_ids(word)
+                word_logits.append((label, logits[0, mask_pos, word_id].item()))
+        
+        # 返回最高概率的label
+        best_label = max(word_logits, key=lambda x: x[1])[0]
+        
+        return best_label
     
-    def __init__(self, num_tokens=10, embed_dim=768):
-        # 软提示
-        self.prompt_embeddings = torch.randn(num_tokens, embed_dim)
+    def batch_predict(self, texts, label_words):
+        """批量预测"""
+        results = []
+        for text in texts:
+            result = self.predict(text, label_words)
+            results.append(result)
+        return results
+```
+
+### 4.2 P-Tuning实现
+
+```python
+class PTuningPromptLearner(nn.Module):
+    """P-Tuning提示学习器"""
     
-    def forward(self, input_ids, token_type_ids):
-        # 拼接提示和输入
-        combined_input = torch.cat([self.prompt_embeddings, input_embeddings], dim=1)
-        return self.model(combined_input)
+    def __init__(self, model_name, num_tokens, hidden_dim):
+        super().__init__()
+        
+        from transformers import BertModel, BertTokenizer
+        self.model = BertModel.from_pretrained(model_name)
+        self.tokenizer = BertTokenizer.from_pretrained(model_name)
+        
+        # 可学习提示
+        self.prompt_embeddings = nn.Embedding(num_tokens, hidden_dim)
+        
+        # LSTM编码器
+        self.lstm = nn.LSTM(
+            hidden_dim, hidden_dim,
+            num_layers=2, 
+            bidirectional=True,
+            batch_first=True
+        )
+        
+        self.mlp = nn.Sequential(
+            nn.Linear(hidden_dim * 2, hidden_dim * 2),
+            nn.ReLU(),
+            nn.Linear(hidden_dim * 2, hidden_dim)
+        )
+    
+    def forward(self, input_ids, attention_mask=None):
+        # 输入嵌入
+        input_embeddings = self.model.embeddings(input_ids)
+        
+        # 可学习提示嵌入
+        prompt_emb = self.prompt_embeddings(
+            torch.arange(
+                self.prompt_embeddings.num_embeddings,
+                device=input_ids.device
+            ).unsqueeze(0).expand(input_ids.size(0), -1)
+        )
+        
+        # LSTM编码
+        prompt_encoded = self.lstm(prompt_emb)[0]
+        prompt_encoded = self.mlp(prompt_encoded)
+        
+        # 拼接
+        embeddings = torch.cat([prompt_encoded, input_embeddings], dim=1)
+        
+        # 通过模型
+        outputs = self.model(inputs_embeds=embeddings)
+        
+        return outputs
+```
+
+### 4.3 CoOp实现
+
+```python
+class CoOp(nn.Module):
+    """CoOp: 可学习的提示"""
+    
+    def __init__(self, model_name, num_tokens, hidden_dim):
+        super().__init__()
+        
+        from transformers import BertModel
+        self.model = BertModel.from_pretrained(model_name)
+        
+        # 可学习提示向量
+        self.prompt_tokens = nn.Parameter(
+            torch.randn(num_tokens, hidden_dim)
+        )
+    
+    def forward(self, input_ids, attention_mask=None):
+        # 嵌入输入
+        input_emb = self.model.embeddings(input_ids)
+        
+        # 拼接提示
+        prompt = self.prompt_tokens.unsqueeze(0).expand(input_ids.size(0), -1, -1)
+        
+        embeddings = torch.cat([prompt, input_emb], dim=1)
+        
+        return self.model(inputs_embeds=embeddings, attention_mask=attention_mask)
 
 
-def demo():
+class CoOpTrainer:
+    """CoOp训练器"""
+    
+    def __init__(self, model_name, num_tokens=10, lr=0.001):
+        self.model = CoOp(model_name, num_tokens, 768)
+        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=lr)
+    
+    def train_step(self, input_ids, labels):
+        """训练步骤"""
+        outputs = self.model(input_ids)
+        logits = outputs.logits
+        
+        # 预测token的logit
+        loss = nn.CrossEntropyLoss()(
+            logits[:, :input_ids.size(1)], 
+            labels
+        )
+        
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+        
+        return loss.item()
+```
+
+---
+
+## 5. 代码示例
+
+### 5.1 完整示例
+
+```python
+def demo_prompt_learning():
     print("=== Prompt Learning 演示 ===\n")
-    model = PromptLearner()
-    text = "This movie is amazing!"
-    template = "The sentiment is [MASK] ."
-    label_words = {"positive": "great", "negative": "terrible"}
-    # result = model.predict(text, template, label_words)
+    
+    # 创建模型
+    learner = PromptLearner("bert-base-uncased")
+    
+    # 测试数据
+    texts = [
+        "This movie is amazing! I love it!",
+        "Terrible movie. Wasted my time.",
+        "It was okay, nothing special."
+    ]
+    
+    label_words = {
+        "positive": ["great", "excellent", "amazing", "good"],
+        "negative": ["terrible", "awful", "boring", "bad"]
+    }
+    
+    # 预测
+    results = learner.batch_predict(texts, label_words)
+    
+    for text, result in zip(texts, results):
+        print(f"Text: {text}")
+        print(f"Prediction: {result}\n")
+    
+    return results
 
 
 if __name__ == "__main__":
-    demo()
+    demo_prompt_learning()
 ```
 
----
-
-## 7. 手工代码实现
+### 5.2 GPT风格提示
 
 ```python
-import numpy as np
+class GPTPromptLearner:
+    """GPT风格的提示学习"""
+    
+    def __init__(self, model_name="gpt2"):
+        self.model = AutoModelForCausalLM.from_pretrained(model_name)
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+        
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
+    
+    def generate(self, prompt, max_length=50):
+        """生成文本"""
+        inputs = self.tokenizer(prompt, return_tensors="pt")
+        
+        outputs = self.model.generate(
+            **inputs,
+            max_length=max_length,
+            do_sample=True,
+            temperature=0.7,
+            top_p=0.9
+        )
+        
+        return self.tokenizer.decode(outputs[0], skip_special_tokens=True)
 
-class SimplePromptLearning:
-    """简化版提示学习"""
+
+def demo_gpt_prompt():
+    print("=== GPT Prompt演示 ===\n")
     
-    def __init__(self, model):
-        self.model = model
-        self.prompt_template = "Text: {text}. Sentiment: [MASK]."
-        self.label_words = ["positive", "negative"]
+    learner = GPTPromptLearner()
     
-    def infer(self, text):
-        """推理"""
-        prompt = self.prompt_template.format(text=text)
-        # 使用模型推理
-        return self.model.complete(prompt, self.label_words)
+    # Few-shot提示
+    prompt = """Capital of France is Paris
+Capital of Japan is Tokyo
+Capital of"""
+    
+    result = learner.generate(prompt)
+    print(f"Prompt: {prompt}")
+    print(f"Generated: {result}\n")
 
 
 if __name__ == "__main__":
-    print("=== 提示学习实现 ===\n")
-    print("1. 设计提示模板")
-    print("2. 映射答案空间")
-    print("3. 执行推理")
+    demo_gpt_prompt()
 ```
 
----
-
-## 8. 可视化
+### 5.3 自动化提示设计
 
 ```python
-import matplotlib.pyplot as plt
-
-def visualize():
-    print("\n=== 提示学习流程 ===\n")
-    print("""
-输入 → 模板拼接 → 大模型推理 → 答案映射
- x     prompt       model         y
+class AutoPromptLearner:
+    """自动提示搜索"""
     
-GPT-3示例:
-Input:  "Review: I love this movie. Sentiment:"
-Model:  "positive"
-    """)
-
-
-if __name__ == "__main__":
-    visualize()
+    def __init__(self, model_name, candidate_words):
+        self.model = AutoModelForMaskedLM.from_pretrained(model_name)
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+        self.candidate_words = candidate_words
+    
+    def evaluate(self, prompt, texts, labels):
+        """评估提示效果"""
+        correct = 0
+        
+        for text, label in zip(texts, labels):
+            input_text = prompt.format(text=text)
+            inputs = self.tokenizer(input_text, return_tensors="pt")
+            
+            with torch.no_grad():
+                outputs = self.model(**inputs)
+                logits = outputs.logits
+            
+            # 预测
+            pred = self.predict_from_logits(logits, inputs['input_ids'])
+            
+            if pred == label:
+                correct += 1
+        
+        return correct / len(texts)
+    
+    def predict_from_logits(self, logits, input_ids):
+        """从logits预测"""
+        mask_pos = (input_ids == self.tokenizer.mask_token_id).nonzero()
+        
+        if len(mask_pos) == 0:
+            return None
+        
+        mask_pos = mask_pos[0, 1]
+        
+        word_ids = []
+        for words in self.candidate_words.values():
+            for word in words:
+                word_ids.append(self.tokenizer.convert_tokens_to_ids(word))
+        
+        best_word = max(word_ids, key=lambda w: logits[0, mask_pos, w].item())
+        
+        for label, words in self.candidate_words.items():
+            if any(self.tokenizer.convert_tokens_to_ids(w) == best_word for w in words):
+                return label
+        
+        return None
+    
+    def search_best_prompt(self, base_prompt, texts, labels, n_iterations=20):
+        """搜索最佳提示"""
+        templates = [
+            "{text}. It was [MASK].",
+            "The movie is [MASK]. {text}",
+            "{text} - [MASK]",
+        ]
+        
+        best_prompt = None
+        best_acc = 0
+        
+        for template in templates:
+            acc = self.evaluate(template, texts, labels)
+            
+            if acc > best_acc:
+                best_acc = acc
+                best_prompt = template
+        
+        return best_prompt, best_acc
 ```
 
 ---
 
-## 9. 主流方法
+## 6. 主流方法对比
 
-| 方法 | 类型 | 特点 |
-|------|------|------|
-| Manual Prompt | 人工 | 简单有效 |
-| Auto Prompt | 自动搜索 | 更优性能 |
-| P-Tuning | LSTM编码 | 连续提示 |
-| CoOp | 连续提示 | 端到端可微 |
-| Prefix Tuning | 前缀 | 冻结LM |
+| 方法 | 类型 | 可微 | 需要训练 | 效果 |
+|------|------|------|---------|------|
+| Manual Prompt | 硬提示 | 否 | 否 | 基线 |
+| Auto-PT | 硬提示 | 近似 | 搜索 | 好 |
+| P-Tuning | 软提示 | 是 | 是 | 很好 |
+| CoOp | 软提示 | 是 | 是 | 最佳 |
+| Prefix Tuning | 软提示 | 是 | 是 | 好 |
 
----
+### 6.1 方法详解
 
-## 10. 评估
+**Manual Prompt**：
+```python
+# 人工设计
+prompt = "The sentiment is [MASK]. {text}"
+```
 
-### 10.1 效果评估
+**P-Tuning**：
+```python
+# LSTM编码可学习提示
+prompt_emb = lstm(learnable_prompt)
+```
 
-- 准确率、F1
-- 少样本性能
+**CoOp**：
+```python
+# 可学习token
+prompt = torch.nn.Parameter(num_tokens, dim)
+```
 
-### 10.2 效率评估
-
-- 推理延迟
-- 内存占用
-
----
-
-## 11. 常见问题
-
-### 11.1 提示敏感性
-
-不同提示效果差异大
-
-### 11.2 答案空间选择
-
-需要人工设计/搜索
-
-### 11.3 多任务冲突
-
-多任务学习需要统一提示设计
+**Prefix Tuning**：
+```python
+# 加在前馈网络的输出上
+output = torch.cat([prefix, model(x)], dim=1)
+```
 
 ---
 
-## 12. 学习总结
+## 7. 应用场景
 
-**Prompt Learning要点**：
+### 7.1 文本分类
 
-1. **提示设计**：核心技巧
-2. **硬提示**：人工设计文本
-3. **软提示**：可学习向量
-4. **答案映射**：标签→词
-5. **优点**：零参数、高效
+```python
+# 情感分析
+templates = {
+     "positive": "I love this! [MASK]",
+     "negative": "This is bad. [MASK]",
+}
+
+# 主题分类
+topic_template = "This article is about [MASK]. {text}"
+
+# 意图分类
+intent_template = "User says: {text}. Intent: [MASK]"
+```
+
+### 7.2 问答
+
+```python
+# 问答
+qa_template = "Question: {question}? Answer: [MASK]."
+
+# 填空式 QA
+cloze_template = "{context} [MASK] is the answer to {question}."
+```
+
+### 7.3 信息抽取
+
+```python
+# 命名实体识别
+ner_template = "{text} [MASK] works at [ORG]."
+
+# 关系抽取
+rel_template = "{subject} and {object} have [MASK] relation."
+```
+
+### 7.4 代码生成
+
+```python
+# 代码完成任务
+code_template = """# Write a function to {task}
+def solution():"""
+```
 
 ---
 
-## 13. 练习题与思考题
+## 8. 常见问题与易错点
 
-1. 为什么大模型适合提示学习？
+### Q1: 为什么大模型适合提示学习？
+
+- 预训练已经学到了丰富知识
+- Few-shot能力是涌现现象
+- 可通过提示激活不同能力
+
+### Q2: 硬提示和软提示的选择？
+
+- 场景简单 → 硬提示
+- 复杂任务 → 软提示
+- 资源受限 → CoOp
+
+### Q3: 提示敏感性？
+
+- 同义不同词效果差异大
+- 需要多次尝试
+- 自动化搜索
+
+### Q4: 如何处理类别映射？
+
+```python
+# 一对多映射
+label_words = {
+    "positive": ["good", "great", "positive"],
+    "negative": ["bad", "negative", "terrible"],
+}
+# 取平均或最大
+```
+
+---
+
+## 9. 练习题
+
+### 选择题
+
+1. Prompt Learning的核心优势？
+   - A) 效果好   B) 参数少   C) 不需要微调
+   - **答案：B**
+
 2. 硬提示和软提示的区别？
+   - A) 长度   B) 可学习型   C) 位置
+   - **答案：B**
+
+3. CoOp的功能？
+   - A) 搜索   B) 生成   C) 可学习提示
+   - **答案：C**
+
+### 简答题
+
+1. 为什么Few-shot有效？
+
+   **答案**：预训练模型已经学习了语言模式，只需激活
+
+2. P-Tuning vs CoOp？
+
+   **答案**：P-Tuning用LSTM编码，CoOp直接学习token embedding
+
+### 编程题
+
+实现Auto-Prompt：
+
+```python
+def auto_prompt_search(model, templates, data, labels):
+    """自动搜索最佳提示"""
+    best_template = None
+    best_accuracy = 0
+    
+    for template in templates:
+        accuracy = evaluate(model, template, data, labels)
+        
+        if accuracy > best_accuracy:
+            best_accuracy = accuracy
+            best_template = template
+    
+    return best_template, best_accuracy
+```
 
 ---
 
-## 14. 学习路径建议
+## 10. 学习路径
 
-1. 理解GPT-3的few-shot能力
-2. 学习各种提示技巧
-3. 实践少样本分类
+### 10.1 方法演进
 
-*Prompt Learning让大模型使用更加高效，是NLP的重大范式转变。*
+```
+Manual Prompt → Auto-PT → P-Tuning → CoOp → Prefix
+```
+
+### 10.2 扩展方向
+
+```
+单个任务 → 多任务 → 领域适应 → 指令学习
+```
+
+---
+
+## 11. 附录
+
+### A. 最佳实践
+
+| 场景 | 推荐方法 |
+|------|----------|
+| 快速测试 | Manual Prompt |
+| 少样本 | Few-shot |
+| 高精度 | CoOp |
+| 中文 | Chinese-PT |
+
+### B. 参考论文
+
+- GPT-3 (2020). "Language Models are Few-Shot Learners"
+- P-Tuning (2021). "GPT Understands"
+- CoOp (2021). "Learning to Learn Your Prompts"
+
+---
+
+**文档结束**

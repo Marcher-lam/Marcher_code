@@ -158,3 +158,92 @@ $$
 3. **MoE 模型的推理效率如何？** MoE 模型虽然总参数量大，但推理时只激活部分专家（如 Qwen3-235B 只激活 22B），实际计算量远小于同等参数量的稠密模型。但 MoE 模型需要将所有专家参数加载到显存中，对显存容量要求较高。
 
 4. **Qwen3 的动态思维模式如何实现？** 通过在训练时混合"有推理过程"和"无推理过程"的数据，让模型学会根据输入自动判断是否需要深度推理。在推理时通过特殊的 system prompt 或 token 控制切换。
+
+# 四、Qwen 与 GPT/LLaMA 系列核心架构对比
+
+| 对比维度 | Qwen3 | GPT-4o | LLaMA 3.1 | DeepSeek-V3 |
+|---------|-------|--------|-----------|-------------|
+| 注意力机制 | GQA + QK-Norm | GQA（推测） | GQA | GQA + MLA（多头潜在注意力） |
+| 位置编码 | RoPE + YaRN 扩展 | 未公开 | RoPE | RoPE |
+| 激活函数 | SiLU + SwiGLU FFN | 未公开 | SwiGLU | SwiGLU |
+| MoE 支持 | 独立专家 + 负载均衡 | 未公开（可能稠密） | 无 | 共享专家 + 路由专家 |
+| 上下文长度 | 1M（YaRN）/ 256K（原生） | 128K | 128K | 128K |
+| 训练数据量 | 36T tokens | 未公开 | 15T+ tokens | 14.8T tokens |
+| 多语言支持 | 119 种语言 | 50+ 种 | 30+ 种 | 中英为主 |
+| 开源程度 | 全系列开源 | 闭源 | 开源 | 开源 |
+
+**关键差异分析：**
+
+1. **QK-Norm 是 Qwen3 的独特优势**：通过对 Q、K 施加 RMSNorm 约束范数，防止注意力分数爆炸。GPT 和 LLaMA 系列均未采用此技术，这在长上下文训练中能显著提升稳定性。
+
+2. **MoE 架构路线差异**：Qwen3 取消共享专家，DeepSeek-V3 保留共享专家 + 路由专家的混合模式。共享专家提供通用知识基座但限制特化程度，Qwen3 的做法更激进但需要更强的负载均衡策略。
+
+3. **上下文扩展策略**：Qwen3 采用 YaRN（结合 NTK 缩放 + 温度调整），LLaMA 3.1 使用 RoPE 基频缩放，两者数学本质相似但实现细节不同。Qwen3 在长度外推上更具优势。
+
+# 五、Qwen 模型加载与推理代码
+
+```python
+from transformers import AutoModelForCausalLM, AutoTokenizer
+import torch
+
+model_name = "Qwen/Qwen2.5-7B-Instruct"
+
+tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+model = AutoModelForCausalLM.from_pretrained(
+    model_name,
+    torch_dtype=torch.bfloat16,
+    device_map="auto",
+    trust_remote_code=True
+)
+
+messages = [
+    {"role": "system", "content": "你是一个有帮助的助手。"},
+    {"role": "user", "content": "请解释 GQA 与 MHA 的区别。"}
+]
+
+text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+inputs = tokenizer(text, return_tensors="pt").to(model.device)
+
+with torch.no_grad():
+    outputs = model.generate(
+        **inputs,
+        max_new_tokens=512,
+        temperature=0.7,
+        top_p=0.9,
+        do_sample=True,
+        repetition_penalty=1.05
+    )
+
+response = tokenizer.decode(outputs[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
+print(response)
+
+prompt = "推荐系统中如何利用大语言模型？"
+input_ids = tokenizer.encode(prompt, return_tensors="pt").to(model.device)
+with torch.no_grad():
+    beam_outputs = model.generate(
+        input_ids,
+        max_new_tokens=256,
+        num_beams=5,
+        num_return_sequences=3,
+        early_stopping=True
+    )
+for i, output in enumerate(beam_outputs):
+    print(f"\n--- 候选结果 {i+1} ---")
+    print(tokenizer.decode(output[input_ids.shape[1]:], skip_special_tokens=True))
+```
+
+# 六、Qwen 各版本优缺点对比
+
+| 版本 | 优势 | 劣势 | 推荐使用场景 |
+|------|------|------|------------|
+| Qwen1.5 | 开源早，社区生态丰富 | 仅 32K 上下文，GQA 覆盖不全 | 轻量级 NLP 任务 |
+| Qwen2.5 | 全系列 GQA，128K 上下文，训练稳定 | MoE 路由仍有优化空间 | 通用 NLP、代码生成 |
+| Qwen3 | QK-Norm 稳定训练，1M 长上下文，动态思维 | 模型较大，部署资源要求高 | 复杂推理、数学、代码 |
+| Qwen3-2507 | 双模型分立部署，垂直领域专精 | 需维护两套模型 | 生产环境高并发推理 |
+
+**选型建议：**
+- **资源受限场景**：选择 Qwen2.5-7B 或 Qwen3-8B
+- **长文本处理**：选择 Qwen3 系列（YaRN 支持 1M）
+- **代码生成**：选择 Qwen3-Coder 系列
+- **多语言任务**：Qwen3 覆盖 119 种语言，优势最大
+- **推荐系统特征提取**：Qwen2.5-7B 性价比最高，可作为文本特征编码器

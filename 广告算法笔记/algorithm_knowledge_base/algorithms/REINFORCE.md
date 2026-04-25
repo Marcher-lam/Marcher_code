@@ -93,7 +93,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 from torch.distributions import Categorical
 import numpy as np
-import gym
+import gymnasium as gym
 
 class PolicyNetwork(nn.Module):
     def __init__(self, state_dim, action_dim, hidden_dim=128):
@@ -142,12 +142,13 @@ def train(env_name='CartPole-v1', num_episodes=1000):
     env = gym.make(env_name)
     agent = REINFORCE(env.observation_space.shape[0], env.action_space.n)
     for ep in range(num_episodes):
-        state = env.reset()
+        state, info = env.reset()
         total_reward = 0.0
         done = False
         while not done:
             action = agent.select_action(state)
-            state, reward, done, _ = env.step(action)
+            state, reward, terminated, truncated, info = env.step(action)
+            done = terminated or truncated
             agent.rewards.append(reward)
             total_reward += reward
         agent.update()
@@ -191,6 +192,50 @@ def compute_returns(rewards, gamma=0.99):
         G = r + gamma * G
         returns.insert(0, G)
     return returns
+
+import gymnasium as gym
+import torch.optim as optim
+
+def train_baseline(env_name='CartPole-v1', num_episodes=500, lr=3e-3, gamma=0.99):
+    env = gym.make(env_name)
+    state_dim = env.observation_space.shape[0]
+    action_dim = env.action_space.n
+    model = REINFORCEBaseline(state_dim, action_dim)
+    optimizer = optim.Adam(model.parameters(), lr=lr)
+    reward_history = []
+
+    for ep in range(num_episodes):
+        state, info = env.reset()
+        log_probs, values, rewards = [], [], []
+        done = False
+        while not done:
+            action, log_prob, value = model.select_action(state)
+            state, reward, terminated, truncated, info = env.step(action)
+            done = terminated or truncated
+            log_probs.append(log_prob)
+            values.append(value)
+            rewards.append(reward)
+
+        returns = compute_returns(rewards, gamma)
+        returns_t = torch.FloatTensor(returns)
+        values_t = torch.stack(values)
+        advantage = returns_t - values_t.detach()
+
+        policy_loss = torch.stack([-lp * adv for lp, adv in zip(log_probs, advantage)]).sum()
+        value_loss = F.mse_loss(values_t, returns_t)
+        loss = policy_loss + 0.5 * value_loss
+
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        reward_history.append(sum(rewards))
+        if (ep + 1) % 50 == 0:
+            avg_r = sum(reward_history[-50:]) / min(50, len(reward_history))
+            print(f'Episode {ep+1}, Avg Reward(50): {avg_r:.1f}')
+
+    env.close()
+    return model, reward_history
 ```
 
 ## 9. 可视化与结果理解

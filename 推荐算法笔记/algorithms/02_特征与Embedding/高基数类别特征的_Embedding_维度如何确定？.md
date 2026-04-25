@@ -297,3 +297,120 @@ print(f"  总参数量: {total_params:,}")
 3. 学习哈希分桶等大规模特征处理技巧
 4. 阅读论文：DHE（Google 2021）、DCN V2 中的特征交互
 5. 实践：在真实推荐数据集上进行消融实验，找到最优维度配置
+
+# 七、核心数学公式
+
+## 1. 维度-基数对数关系公式
+
+Embedding 维度与特征基数（词表大小）的对数关系：
+
+$$
+\dim \approx \log_2(\text{vocab\_size})
+$$
+
+更一般地，基于信息论的分析表明，要充分编码 $\text{vocab\_size}$ 个不同实体，Embedding 空间需要至少满足：
+
+$$
+2^{\dim} \geq \text{vocab\_size} \cdot \epsilon
+$$
+
+其中 $\epsilon$ 是期望的区分粒度。因此最小维度下界为：
+
+$$
+\dim_{min} = \lceil \log_2(\text{vocab\_size}) + \log_2(\epsilon) \rceil
+$$
+
+## 2. Embedding 容量分析
+
+Embedding 的表达能力可以用 Shannon 信息量来衡量。假设每个维度使用 $b$ 位精度（通常 $b=32$ float），则 Embedding 层的总信息容量为：
+
+$$
+C = \text{vocab\_size} \times \dim \times b \text{ (bits)}
+$$
+
+每个实体的平均信息量为 $\dim \times b$ bits。为避免欠拟合，每个实体的信息量应至少覆盖其有效特征的自由度。经验上：
+
+$$
+\dim \geq \frac{\text{有效特征自由度}}{b} \approx \frac{\log_2(\text{vocab\_size})}{1}
+$$
+
+这与对数法则一致。
+
+## 3. 哈希冲突概率公式
+
+使用哈希分桶时，将 $V$ 个原始 ID 映射到 $B$ 个桶中。根据生日悖论，至少发生一次冲突的概率近似为：
+
+$$
+P(\text{collision}) \approx 1 - e^{-V(V-1) / (2B)}
+$$
+
+对于 $V$ 个 ID 中的某一个特定 ID，与其他 ID 发生冲突的期望次数为：
+
+$$
+E[\text{collisions per ID}] = \frac{V - 1}{B}
+$$
+
+当 $B \geq 10V$ 时，冲突率可控制在 $10\%$ 以下，这是实践中推荐的桶数下界。
+
+哈希冲突导致的预期信息损失（用 Jensen 不等式分析）：
+
+$$
+\text{信息损失} \leq \frac{V - B}{V} \times \text{原始信息量}
+$$
+
+## 4. DHE 编码阶段的数学公式
+
+DHE 的编码阶段使用 $H$ 个独立哈希函数将 ID 映射为 $H$ 维向量。对于输入 ID $x$，第 $i$ 个哈希函数的输出为：
+
+$$
+e_i(x) = 2 \times \left(\frac{h_i(x) \mod M}{M} - 0.5\right)
+$$
+
+其中 $h_i(x)$ 是第 $i$ 个哈希函数，$M$ 是取模范围。归一化后 $e_i(x) \in [-1, 1]$，近似服从均匀分布 $U(-1, 1)$。
+
+完整编码向量：
+
+$$
+\mathbf{e}(x) = [e_1(x), e_2(x), \ldots, e_H(x)]^T \in \mathbb{R}^H
+$$
+
+编码向量的碰撞概率为：
+
+$$
+P(\mathbf{e}(x_1) = \mathbf{e}(x_2)) = \left(\frac{1}{M}\right)^H
+$$
+
+当 $H = 1024, M = 10^6$ 时，碰撞概率趋近于零，远优于传统哈希分桶。
+
+## 5. DHE 解码阶段的数学公式
+
+解码阶段通过多层感知机将编码向量转换为 Embedding：
+
+$$
+\mathbf{z}^{(0)} = \mathbf{e}(x)$$
+
+$$
+\mathbf{z}^{(l)} = \text{Mish}\left(W^{(l)} \mathbf{z}^{(l-1)} + b^{(l)}\right), \quad l = 1, \ldots, L-1
+$$
+
+$$
+\text{Emb}(x) = W^{(L)} \mathbf{z}^{(L-1)} + b^{(L)} \in \mathbb{R}^d
+$$
+
+其中 Mish 激活函数定义为：
+
+$$
+\text{Mish}(x) = x \cdot \tanh(\text{Softplus}(x)) = x \cdot \tanh(\ln(1 + e^x))
+$$
+
+DHE 的参数总量为 $O(H \cdot h_1 + \sum_{l} h_l \cdot h_{l+1} + h_{L-1} \cdot d)$，与词表大小 $V$ 完全无关，这是其核心优势。
+
+## 6. 自适应维度分配的预算优化公式
+
+在总参数预算 $P$ 的约束下，为 $K$ 个特征分配维度：
+
+$$
+\min_{\{d_k\}} \sum_{k=1}^{K} L_k(d_k) \quad \text{s.t.} \quad \sum_{k=1}^{K} V_k \cdot d_k \leq P, \quad d_{min} \leq d_k \leq d_{max}
+$$
+
+其中 $L_k(d_k)$ 是特征 $k$ 在维度 $d_k$ 下的期望损失（通常通过消融实验拟合为幂律曲线 $L_k(d) \propto d^{-\alpha_k}$），$V_k$ 是特征 $k$ 的词表大小。

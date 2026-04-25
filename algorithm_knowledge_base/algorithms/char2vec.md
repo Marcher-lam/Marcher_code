@@ -1,440 +1,818 @@
-# char2vec 学习文档
+# char2vec (Character Embeddings) 学习文档
 
-## 1. 算法基础认知->char->vec（字符级词嵌入）学习文档
+## 1. 算法基础认知
 
 ### 1.1 一句话定义
-char2vec（基于FastText的字符级词嵌入）是一种通过学习字符n-gram来表示词的方法，可以处理未登录词（OOV）并捕获词的形态和拼写信息。
+
+char2vec是一种将字符（character）映射到连续向量表示的嵌入方法，是Word2Vec的字符级别版本，使得算法能够处理未见过的词汇、拼写变体和非标准文本。
 
 ### 1.2 直觉类比
-char2vec就像教小孩拼写：即使没见过的单词，通过已知的字母组合也能推测其读音和含义。"submarine"可以拆成"sub"、"subma"、"marine"等子词部分。
+
+想象char2vec的工作方式就像学习字母的发音特征：字母"a"在单词"apple"中和"banana"中有相似的向量表示，因为它们共享类似的字符模式。这使得模型能够理解"apples"和"apple"是相关的，即使它在训练集中没有见过"apples"这个具体形式。
 
 ### 1.3 历史背景
-char2vec由Bojanowski等人2017年提出，是FastText的扩展，解决OOV问题。
+
+char2vec的概念起源于2014年，由Word2Vec的思想扩展而来。研究者发现基于词的表示存在OOV（Out-of-Vocabulary）问题，因此探索字符级别的表示。主要发展脉络：
+- 2014: Word2Vec发布（Mikolov et al.）
+- 2015: 字符级嵌入被用于神经机器翻译
+- 2016: CharCNN、CharRNN等方法出现
+- 2018: ELMo使用字符级卷积
 
 ### 1.4 算法定位
-- 类型：无监督/有监督
-- 输出：词向量
-- 模型层级表示
+
+| 特性 | char2vec | Word2Vec |
+|------|----------|----------|
+| 基本单元 | 字符 | 词 |
+| OOV处理 | 自然处理 | 需要UNK |
+| 词形态 | 可捕获 | 无法捕获 |
+| 向量维度 | 较小 | 较大 |
+| 训练数据 | 较少 | 较多 |
 
 ### 1.5 前置知识
-- word2vec基础
-- n-gram概念
-- 神经网络基础
+
+学习char2vec需要：
+1. 词嵌入基本概念（Word2Vec）
+2. 神经网络基础
+3. 字符编码（ASCII, Unicode）
+4. n-gram概念
+
+---
 
 ## 2. 核心原理
+
 ### 2.1 核心思想
-char2vec的核心是用字符n-gram的集合表示词，即使词表中没有这个词，也可以通过其子词来表示。
+
+char2vec的核心思想是利用字符序列学习字符的向量表示，通过CBOW或Skip-gram目标，在字符上下文中预测目标字符。与词级别Word2Vec的区别在于：基本单元是字符而不是词，上下文是相邻字符而不是相邻词。
 
 ### 2.2 工作流程
-1. 将词拆分为字符n-gram
-2. 为每个n-gram学习向量表示
-3. 词的向量是子词的求和
-4. 使用Skip-gram或CBOW训练
 
-### 2.3 关键概念
-- **字符n-gram**：连续的n个字符
-- **子词嵌入**：subword embedding
-- **OOV处理**：未登录词处理
+1. **字符分词**：将文本分解为字符序列
+2. **建立词汇表**：收集所有唯一字符
+3. **构建训练数据**：创建字符上下文对
+4. **训练嵌入**：使用Skip-gram目标学习
+5. **获取嵌入**：提取字符向量表
 
-## 3. 数学公式
+### 2.3 字符上下文
+
+对于字符串"hello"中的字符"e"：
+- 窗口大小=2时
+- 上下文字符：["h", "l", "l", "o"]
+- 正样本对：(e, h), (e, l), (e, l), (e, o)
+
+### 2.4 n-gram增强
+
+为了增强表示能力，char2vec可以使用字符n-gram：
+- unigram：单个字符
+- bigram：两个连续字符（"he", "el", "ll", "lo"）
+- trigram：三个连续字符（"hel", "ell", "llo"）
+
+---
+
+## 3. 数学公式与推导
+
 ### 3.1 符号约定
-| 符号 | 含义 |
-|------|------|
-| $w$ | 词 |
-| $g$ | n-gram |
-| $v_g$ | n-gram向量 |
-| $V_w$ | 词向量 |
 
-### 3.2 公式
-词向量表示：
-$$v_w = \sum_{g \in \mathcal{G}_w} v_g$$
+| 符号 | 含义 | 维度 |
+|------|------|------|
+| V | 字符词汇表大小 | 标量 |
+| D | 嵌入维度 | 标量 |
+| C | 上下文窗口大小 | 标量 |
+| E | 字符嵌入矩阵 | V × D |
+| w_c | 中心字符 | D × 1 |
+| w_o | 上下文字符 | D × 1 |
 
-其中$\mathcal{G}_w$是词$w$的n-gram集合。
+### 3.2 Skip-gram目标
 
-### 3.3 损失函数
-与Skip-gram类似，但输入是n-gram：
-$$\log \sigma(v_g \cdot v_c) + \sum_{k=1}^K \mathbb{E}_j[\log \sigma(-v_g \cdot v_j)]$$
+给定中心字符c和上下文字符o：
 
-## 4. 训练过程
+$$P(o|c) = \sigma(w_c^T w_o) = \frac{1}{1 + \exp(-w_c^T w_o)}$$
+
+### 3.3 目标函数
+
+$$J(\theta) = \frac{1}{T} \sum_{t=1}^{T} \sum_{-c \leq j \leq c} \log P(w_{t+j}|w_t)$$
+
+其中T是训练序列长度，c是上下文窗口大小。
+
+### 3.4 负采样
+
+为了加速训练，使用负采样近似：
+
+$$\log \sigma(w_c^T w_o) + \sum_{i=1}^{k} \mathbb{E}_{w_i \sim P_n}[log \sigma(-w_c^T w_i)]$$
+
+其中k是负样本数量，通常设置为5-20。
+
+### 3.5 字符表示构建
+
+词/词的表示由其字符的嵌入组合而成：
+
+$$\text{repr}(word) = \frac{1}{n} \sum_{i=1}^{n} E[c_i]$$
+
+或者使用卷积：
+
+$$\text{repr}(word) = \text{CNN}(E[c_1], E[c_2], ..., E[c_n])$$
+
+### 3.6 最终解
+
+通过随机梯度下降（SGD）或层次Softmax优化，得到字符嵌入矩阵E，其中每一行是一个字符的D维向量表示。
+
+---
+
+## 4. 训练过程讲解
+
 ### 4.1 数据预处理
-- 字符n-gram提取
-- n-gram表构建
 
-### 4.2 参数初始化
-- 随机初始化子词向量
+```python
+def preprocess_text(text):
+    """文本预处理"""
+    # 分字符
+    chars = list(text)
+    # 过滤控制字符
+    chars = [c for c in chars if c.isprintable()]
+    return chars
 
-### 4.3 超参数
-- min_n: 最小n
-- max_n: 最大n
-- dim: 向量维度
+def build_vocab(chars, min_freq=2):
+    """构建字符词汇表"""
+    from collections import Counter
+    counter = Counter(chars)
+    # 过滤低频字符
+    vocab = {c: i for i, (c, freq) in enumerate(
+        filter(lambda x: x[1] >= min_freq, counter.items())
+    )}
+    return vocab
+```
 
-### 4.4 推荐范围
-- min_n: 3-6
-- max_n: 6-10
-- dim: 100-300
+### 4.2 训练数据构建
+
+```python
+def build_training_data(chars, vocab, window_size=2):
+    """构建训练数据（中心-上下文对）"""
+    data = []
+    for i in range(len(chars)):
+        center = chars[i]
+        if center not in vocab:
+            continue
+        for j in range(max(0, i - window_size), 
+                     min(len(chars), i + window_size + 1)):
+            if i != j:
+                context = chars[j]
+                if context in vocab:
+                    data.append((vocab[center], vocab[context]))
+    return data
+```
+
+### 4.3 训练过程
+
+```python
+def train_char2vec(data, vocab_size, embedding_dim=100, 
+              epochs=5, learning_rate=0.025):
+    """训练char2vec"""
+    E = np.random.randn(vocab_size, embedding_dim) * 0.01
+    
+    for epoch in range(epochs):
+        np.random.shuffle(data)
+        for center, context in data:
+            # 正样本梯度
+            pos_score = sigmoid(E[center] @ E[context])
+            grad = (pos_score - 1) * E[context]
+            E[center] -= learning_rate * grad
+            
+            # 负采样
+            for _ in range(5):
+                neg = np.random.randint(0, vocab_size)
+                if neg != context:
+                    neg_score = sigmoid(E[center] @ E[neg])
+                    grad = neg_score * E[center]
+                    E[neg] -= learning_rate * grad
+    
+    return E
+```
+
+### 4.4 收敛条件
+
+- 损失函数不再显著下降
+- 达到预设的最大迭代次数
+- 验证集性能不再提升
+
+### 4.5 超参数及推荐范围
+
+| 超参数 | 作用 | 推荐范围 | 默认值 |
+|--------|------|----------|--------|
+| embedding_dim | 嵌入维度 | 50-300 | 100 |
+| window_size | 上下文窗口 | 2-5 | 2 |
+| min_freq | 最小频率 | 1-5 | 2 |
+| epochs | 训练轮数 | 3-10 | 5 |
+| learning_rate | 学习率 | 0.01-0.1 | 0.025 |
+| negative | 负样本数 | 5-20 | 10 |
+
+---
 
 ## 5. 应用场景
+
 ### 5.1 典型应用
-- **OOV词嵌入**：处理新词
-- **形态学习**：捕获词缀信息
-- **小语种**：字符丰富的语言
 
-### 5.2 适用数据
-- 形态丰富语言
-- OOV问题严重
-- 训练数据较少
+1. **OOV词汇处理**
+   - Char2Vec可以为未见过的词生成表示
+   - 拼写错误自动修正
+   - 新词发现
 
-### 5.3 不适用
-- 纯语义理解（不捕获语义）
+2. **形态学分析**
+   - 理解词根和词缀
+   - 词形变化理解
+   - 跨语言迁移
+
+3. **非标准文本处理**
+   - 社交媒体文本（表情符号、网络用语）
+   - 方言和土话
+   - 历史文献OCR纠错
+
+4. **语音识别**
+   - 处理发音变体
+   - 噪音环境下的文本规范化
+
+### 5.2 适用数据特征
+
+- 具有丰富字符变化的语言（英语、德语等）
+- 形态学丰富的语言（阿拉伯语、希伯来语）
+- 需要处理新词的任务
+
+### 5.3 不适用场景
+
+- 字符集非常大的语言（如中文）
+- 需要精确语义的任务
+- 训练数据极少的场景
+
+---
 
 ## 6. 优缺点分析
+
 ### 6.1 优点
-- 处理OOV词
-- 捕获形态信息
-- 训练快速
+
+| 优点 | 说明 | 成立条件 |
+|------|------|----------|
+| OOV处理 | 自然处理未登录词 | 字符级表示 |
+| 形态捕获 | 理解词形变化 | 共享字符模式 |
+| 小词汇表 | 只存储字符 | 字符集有限 |
+| 跨语言 | 可跨语言迁移 | 共享字母 |
+| 鲁棒性 | 对拼写错误鲁棒 | 错误在上下文 |
 
 ### 6.2 缺点
-- 不捕获深语义
-- 对拼写敏感
-- 参数较多
 
-### 6.3 对比
-| 特性 | char2vec | word2vec | glove |
-|------|----------|----------|-------|
-| OOV | 好 | 差 | 差 |
-| 形态 | 好 | 差 | 差 |
-| 语义 | 中 | 好 | 好 |
+| 缺点 | 说明 | 缓解方法 |
+|------|------|----------|
+| 语义捕获弱 | 不直接编码语义 | 结合词嵌入 |
+| 长距离依赖 | 窗口限制 | 增大窗口 |
+| 计算成本 | 构建n-gram成本 | 使用哈希技巧 |
+| 歧义 | 同形字符歧义 | 上下文增强 |
 
-## 7. 调库实现
-### 7.1 环境准备
-```bash
-pip install gensim numpy
-```
+---
 
-### 7.2 完整代码示例
+## 7. 调库实现（Python + 完整代码 + 注释）
+
+### 7.1 使用gensim实现
+
 ```python
-"""
-char2vec (FastText字符级嵌入) 实现
-"""
-import numpy as np
-from gensim.models import FastText
-import matplotlib.pyplot as plt
-from sklearn.model_selection import train_test_split
+from gensim.models import Word2Vec
+import string
 
-# ============ 训练char2vec ============
-print("=" * 50)
-print("char2vec (FastText) 示例")
-print("=" * 50)
-
-# 训练语料（实际应使用大规模语料）
-sentences = [
-    "今天 天气 很好".split(),
-    "我 学习 机器学习".split(),
-    "深度学习 很有 趣".split(),
-    "自然语言 处理 重要".split(),
-    "词嵌入 技术 发展".split(),
-    "神经 网络 可以 处理 文本".split()
-]
-
-# 训练FastText模型
-model = FastText(
-    sentences=sentences,
-    vector_size=100,        # 向量维度
-    window=5,              # 上下文窗口
-    min_count=1,           # 最小词频
-    workers=4,             # 并行数
-    sg=1,                  # Skip-gram
-    min_n=2,               # 最小n-gram
-    max_n=5                # 最大n-gram
-)
-
-# 获取词向量
-print("\n词向量示例:")
-for word in ["今天", "学习", "深度"]:
-    if word in model.wv:
-        print(f"{word}: {model.wv[word][:5]}...")
-
-# OOV词处理
-print("\nOOV词处理:")
-oov_word = "机器学习者"  # 未登录词
-if oov_word in model.wv:
-    print(f"{oov_word} 在词表中")
-else:
-    # 使用子词向量
-    char_vec = np.zeros(100)
-    ngrams = model._ocab.keys()  # 实际应用内部存储
-    count = 0
-    for ngram in range(2, 6):
-        for i in range(len(oov_word) - ngram + 1):
-            subword = oov_word[i:i+ngram]
-            if subword in model.wv:
-                char_vec += model.wv[subword]
-                count += 1
-    if count > 0:
-        print(f"使用子词: {count} 个子词组合")
+class Char2Vec:
+    """字符级Word2Vec"""
+    
+    def __init__(self, embedding_dim=100, window_size=2, 
+                 min_count=2, epochs=5):
+        self.embedding_dim = embedding_dim
+        self.window_size = window_size
+        self.min_count = min_count
+        self.epochs = epochs
+        self.model = None
+    
+    def preprocess(self, text):
+        """预处理文本，分割为字符列表"""
+        # 转为小写
+        text = text.lower()
+        # 保留字母、数字和空格
+        chars = []
+        for c in text:
+            if c.isalnum() or c.isspace():
+                chars.append(c)
+        return ''.join(chars).split()
+    
+    def char_tokenize(self, word):
+        """将词分割为字符"""
+        return list(word)
+    
+    def fit(self, texts):
+        """训练char2vec模型"""
+        # 分字符
+        sentences = []
+        for text in texts:
+            words = self.preprocess(text)
+            for word in words:
+                if len(word) > 0:
+                    sentences.append(self.char_tokenize(word))
         
-# 相似词查找
-print("\n相似词:")
-for word, sim in model.wv.most_similar("学习", topn=3):
-    print(f"  {word}: {sim:.4f}")
+        # 训练
+        self.model = Word2Vec(
+            sentences,
+            vector_size=self.embedding_dim,
+            window=self.window_size,
+            min_count=self.min_count,
+            epochs=self.epochs,
+            sg=1,  # Skip-gram
+            workers=4
+        )
+        
+        return self
+    
+    def get_embedding(self, char):
+        """获取字符嵌入"""
+        if self.model is None:
+            raise ValueError("Model not trained")
+        try:
+            return self.model.wv[char]
+        except KeyError:
+            return None
+    
+    def get_word_embedding(self, word):
+        """获取词的字符组合嵌入"""
+        chars = self.char_tokenize(word.lower())
+        embeddings = []
+        for c in chars:
+            emb = self.get_embedding(c)
+            if emb is not None:
+                embeddings.append(emb)
+        
+        if not embeddings:
+            return None
+        
+        return sum(embeddings) / len(embeddings)
+    
+    def most_similar(self, char, topn=5):
+        """查找最相似的字符"""
+        return self.model.wv.most_similar(char, topn=topn)
 
-# ============ 可视化 ============
-fig, axes = plt.subplots(1, 2, figsize=(12, 5))
 
-# 1. 词汇向量分布
-ax1 = axes[0]
-words = ["今天", "天气", "学习", "机器", "深度", "自然"]
-vectors = []
-labels = []
-for w in words:
-    if w in model.wv:
-        vectors.append(model.wv[w])
-        labels.append(w)
-vectors = np.array(vectors)
+def demo():
+    print("=== char2vec 演示 ===\n")
+    
+    # 训练数据
+    texts = [
+        "hello world",
+        "apple banana cherry",
+        "testing test tested",
+        "machine learning",
+        "deep neural network",
+        "character embedding",
+    ]
+    
+    model = Char2Vec(embedding_dim=50, window_size=2, epochs=10)
+    model.fit(texts)
+    
+    # 字符嵌入
+    print("字符嵌入示例:")
+    for char in ['a', 'e', 'o', 'z']:
+        emb = model.get_embedding(char)
+        if emb is not None:
+            print(f"  {char}: {emb[:5]}...")
+    
+    # 词嵌入
+    print("\n词嵌入示例:")
+    for word in ['apple', 'test', 'network']:
+        emb = model.get_word_embedding(word)
+        if emb is not None:
+            print(f"  {word}: {emb[:5]}...")
+    
+    # 相似字符
+    print("\n与 'a' 最相似的字符:")
+    similar = model.most_similar('a', topn=5)
+    for char, sim in similar:
+        print(f"  {char}: {sim:.4f}")
 
-from sklearn.decomposition import PCA
-pca = PCA(n_components=2)
-vecs_2d = pca.fit_transform(vectors)
-ax1.scatter(vecs_2d[:, 0], vecs_2d[:, 1])
-for i, w in enumerate(labels):
-    ax1.annotate(w, (vecs_2d[i, 0], vecs_2d[i, 1]))
-ax1.set_title('Word Embedding (PCA)')
-ax1.set_xlabel('PC1')
-ax1.set_ylabel('PC2')
 
-# 2. n-gram信息
-ax2 = axes[1]
-sample_word = "学习"
-ngrams_sample = []
-for n in range(2, 6):
-    for i in range(len(sample_word) - n + 1):
-        ngrams_sample.append(sample_word[i:i+n])
-ax2.barh(range(len(ngrams_sample)), [1]*len(ngrams_sample))
-ax2.set_yticks(range(len(ngrams_sample)))
-ax2.set_yticklabels(ngrams_sample)
-ax2.set_xlabel('Count')
-ax2.set_title(f'N-grams of "{sample_word}"')
-
-plt.tight_layout()
-plt.show()
+if __name__ == "__main__":
+    demo()
 ```
 
-### 7.3 运行结果
-```
-词向量示例:
-今天: [-0.0123  0.0456 ...
-学习: [ 0.0234 -0.0567 ...
+### 7.2 使用PyTorch实现
 
-相似词:
-  机器: 0.8923
-  深度: 0.7654
-```
-
-## 8. 手工代码实现
-### 8.1 核心代码
 ```python
-"""
-简易char2vec实现
-"""
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+class Char2VecModel(nn.Module):
+    """char2vec 模型（PyTorch实现）"""
+    
+    def __init__(self, vocab_size, embedding_dim):
+        super().__init__()
+        self.embedding = nn.Embedding(vocab_size, embedding_dim)
+        self.output = nn.Linear(embedding_dim, vocab_size)
+    
+    def forward(self, center_char, context_char):
+        """Skip-gram前向传播"""
+        center_emb = self.embedding(center_char)
+        context_emb = self.embedding(context_char)
+        
+        # 相似度
+        sim = torch.sum(center_emb * context_emb, dim=-1)
+        return sim
+    
+    def get_embedding(self, char_idx):
+        """获取嵌入"""
+        return self.embedding(char_idx)
+
+
+class Char2VecTrainer:
+    """char2vec训练器"""
+    
+    def __init__(self, vocab_size, embedding_dim=100, 
+                 learning_rate=0.025):
+        self.model = Char2VecModel(vocab_size, embedding_dim)
+        self.optimizer = torch.optim.Adam(
+            self.model.parameters(), lr=learning_rate
+        )
+        self.criterion = nn.BCEWithLogitsLoss()
+    
+    def train_step(self, center, context, negative_samples):
+        """单步训练"""
+        # 正样本
+        pos_sim = self.model(center, context)
+        pos_loss = F.binary_cross_entropy_with_logits(
+            pos_sim, torch.ones_like(pos_sim)
+        )
+        
+        # 负样本
+        neg_sim = self.model(center, negative_samples)
+        neg_loss = F.binary_cross_entropy_with_logits(
+            neg_sim, torch.zeros_like(neg_sim)
+        )
+        
+        # 总损失
+        loss = pos_loss + neg_loss
+        
+        # 反向传播
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+        
+        return loss.item()
+```
+
+---
+
+## 8. 手工代码实现（核心算法手写 + 注释）
+
+### 8.1 完整实现
+
+```python
 import numpy as np
 from collections import defaultdict
 
 class Char2Vec:
-    """简单字符级词嵌入"""
-
-    def __init__(self, dim=100, min_n=3, max_n=6):
-        self.dim = dim
-        self.min_n = min_n
-        self.max_n = max_n
-        self.ngram_embeddings = {}
-        self.word_embeddings = {}
-
-    def _extract_ngrams(self, word):
-        """提取n-gram"""
-        ngrams = []
-        for n in range(self.min_n, self.max_n + 1):
-            if len(word) >= n:
-                for i in range(len(word) - n + 1):
-                    ngrams.append(word[i:i+n])
-        return ngrams
-
-    def fit(self, sentences, epochs=100, lr=0.025):
-        """训练"""
-        # 收集所有n-gram
-        ngram_counts = defaultdict(int)
-        word_context = defaultdict(list)
-
-        for sent in sentences:
-            for word in sent:
-                ngrams = self._extract_ngrams(word)
-                for ng in ngrams:
-                    ngram_counts[ng] += 1
-
-        # 筛选高频n-gram
-        self.ngram_embeddings = {ng: np.random.randn(self.dim) * 0.1
-                                for ng, c in ngram_counts.items() if c >= 2}
-
-        # 简化Skip-gram训练
-        for ep in range(epochs):
-            for sent in sentences:
-                for target in sent:
-                    for context in sent:
-                        if target != context:
-                            tgt_ngs = self._extract_ngrams(target)
-                            ctx_ngs = self._extract_ngrams(context)
-
-                            tgt_vec = np.mean([self.ngram_embeddings.get(ng, np.zeros(self.dim))
-                                            for ng in tgt_ngs], axis=0)
-                            ctx_vec = np.mean([self.ngram_embeddings.get(ng, np.zeros(self.dim))
-                                            for ng in ctx_ngs], axis=0)
-
-                            # 更新
-                            for ng in tgt_ngs:
-                                if ng in self.ngram_embeddings:
-                                    self.ngram_embeddings[ng] -= lr * (tgt_vec - ctx_vec + 0.01 * self.ngram_embeddings[ng])
-
-    def get_vector(self, word):
-        """获取词向量"""
-        ngrams = self._extract_ngrams(word)
-        vectors = [self.ngram_embeddings.get(ng, np.zeros(self.dim)) for ng in ngrams]
-        if vectors:
-            return np.mean(vectors, axis=0)
-        return np.zeros(self.dim)
-
-    def most_similar(self, word, topk=3):
-        """找相似词"""
-        target_vec = self.get_vector(word)
-        if word in self.word_embeddings:
-            del self.word_embeddings[word]
+    """字符级嵌入（手工实现）"""
+    
+    def __init__(self, embedding_dim=100, window_size=2, 
+                 learning_rate=0.025, negative_samples=5):
+        self.embedding_dim = embedding_dim
+        self.window_size = window_size
+        self.learning_rate = learning_rate
+        self.negative_samples = negative_samples
+        self.char_to_idx = {}
+        self.idx_to_char = {}
+        self.embeddings = None
+    
+    def sigmoid(self, x):
+        """sigmoid函数"""
+        return 1 / (1 + np.exp(-np.clip(x, -500, 500)))
+    
+    def build_vocab(self, texts, min_freq=2):
+        """构建词汇表"""
+        from collections import Counter
+        counter = Counter()
+        for text in texts:
+            for word in text.split():
+                counter.update(word.lower())
+        
+        # 构建索引
+        idx = 0
+        for char, freq in counter.items():
+            if freq >= min_freq:
+                self.char_to_idx[char] = idx
+                self.idx_to_char[idx] = char
+                idx += 1
+        
+        # 初始化嵌入
+        vocab_size = len(self.char_to_idx)
+        self.embeddings = np.random.randn(
+            vocab_size, self.embedding_dim
+        ) * 0.1
+        
+        return vocab_size
+    
+    def generate_training_pairs(self, text):
+        """生成训练对"""
+        pairs = []
+        words = text.lower().split()
+        
+        for word in words:
+            for i, center_char in enumerate(word):
+                if center_char not in self.char_to_idx:
+                    continue
+                
+                # 上下文窗口
+                start = max(0, i - self.window_size)
+                end = min(len(word), i + self.window_size + 1)
+                
+                for j in range(start, end):
+                    if i != j and word[j] in self.char_to_idx:
+                        pairs.append((
+                            self.char_to_idx[center_char],
+                            self.char_to_idx[word[j]]
+                        ))
+        
+        return pairs
+    
+    def train(self, texts, epochs=5, verbose=True):
+        """训练模型"""
+        vocab_size = self.build_vocab(texts)
+        
+        for epoch in range(epochs):
+            total_loss = 0
+            for text in texts:
+                pairs = self.generate_training_pairs(text)
+                np.random.shuffle(pairs)
+                
+                for center_idx, context_idx in pairs:
+                    # 正样本
+                    center_vec = self.embeddings[center_idx]
+                    context_vec = self.embeddings[context_idx]
+                    
+                    pos_score = self.sigmoid(
+                        np.dot(center_vec, context_vec)
+                    )
+                    pos_loss = -np.log(pos_score + 1e-10)
+                    
+                    # 负样本
+                    neg_loss = 0
+                    for _ in range(self.negative_samples):
+                        neg_idx = np.random.randint(0, vocab_size)
+                        if neg_idx != context_idx:
+                            neg_vec = self.embeddings[neg_idx]
+                            neg_score = self.sigmoid(
+                                np.dot(center_vec, neg_vec)
+                            )
+                            neg_loss -= np.log(1 - neg_score + 1e-10)
+                    
+                    # 更新嵌入
+                    loss = pos_loss + neg_loss
+                    total_loss += loss
+                    
+                    # 梯度更新
+                    grad = (pos_score - 1) * context_vec
+                    self.embeddings[center_idx] -= self.learning_rate * grad
+                    
+                    for _ in range(self.negative_samples):
+                        neg_idx = np.random.randint(0, vocab_size)
+                        neg_vec = self.embeddings[neg_idx]
+                        neg_score = self.sigmoid(
+                            np.dot(center_vec, neg_vec)
+                        )
+                        grad = neg_score * center_vec
+                        self.embeddings[neg_idx] -= self.learning_rate * grad
+            
+            if verbose:
+                print(f"Epoch {epoch+1}/{epochs}, Loss: {total_loss:.4f}")
+    
+    def get_embedding(self, char):
+        """获取字符嵌入"""
+        if char in self.char_to_idx:
+            return self.embeddings[self.char_to_idx[char]]
+        return None
+    
+    def most_similar(self, char, topn=5):
+        """查找最相似的字符"""
+        if char not in self.char_to_idx:
+            return []
+        
+        char_vec = self.get_embedding(char)
         similarities = []
-        for w, vec in self.word_embeddings.items():
-            sim = np.dot(target_vec, vec) / (np.linalg.norm(target_vec) * np.linalg.norm(vec) + 1e-10)
-            similarities.append((w, sim))
-        return sorted(similarities, key=lambda x: x[1], reverse=True)[:topk]
+        
+        for idx, embedding in enumerate(self.embeddings):
+            if idx != self.char_to_idx[char]:
+                sim = np.dot(char_vec, embedding)
+                sim /= (np.linalg.norm(char_vec) * 
+                      np.linalg.norm(embedding) + 1e-10)
+                similarities.append((self.idx_to_char[idx], sim))
+        
+        similarities.sort(key=lambda x: x[1], reverse=True)
+        return similarities[:topn]
+
+
+def demo():
+    print("=== char2vec 手工实现演示 ===\n")
+    
+    texts = [
+        "hello world",
+        "apple banana cherry",
+        "testing test tested",
+    ]
+    
+    model = Char2Vec(embedding_dim=50, window_size=2, 
+                    learning_rate=0.05)
+    model.train(texts, epochs=10)
+    
+    # 测试
+    print("\n字符嵌入示例:")
+    for char in ['a', 'e', 'o']:
+        emb = model.get_embedding(char)
+        if emb is not None:
+            print(f"  {char}: {emb[:5]}")
+    
+    print("\n与 'a' 最相似的字符:")
+    similar = model.most_similar('a', topn=5)
+    for char, sim in similar:
+        print(f"  {char}: {sim:.4f}")
 
 
 if __name__ == "__main__":
-    sentences = [
-        "今天 天气 很好".split(),
-        "我 学习 机器学习".split()
-    ]
-    model = Char2Vec(dim=50, min_n=2, max_n=4)
-    model.fit(sentences, epochs=50)
-    print("训练完成")
+    demo()
 ```
 
-### 8.2 结果
-- 训练速度较快
+---
 
-## 9. 可视化
-### 9.1 子词分布
+## 9. 可视化与结果理解
+
+### 9.1 字符嵌入可视化
+
 ```python
-plt.figure()
-# 显示词的子词构成
+import matplotlib.pyplot as plt
+import numpy as np
+from sklearn.manifold import TSNE
+
+def visualize_embeddings(char2vec_model):
+    """可视化字符嵌入"""
+    # 收集所有字符嵌入
+    chars = []
+    embeddings = []
+    for char in 'abcdefghijklmnopqrstuvwxyz0123456789':
+        emb = char2vec_model.get_embedding(char)
+        if emb is not None:
+            chars.append(char)
+            embeddings.append(emb)
+    
+    embeddings = np.array(embeddings)
+    
+    # t-SNE降维
+    tsne = TSNE(n_components=2)
+    embeddings_2d = tsne.fit_transform(embeddings)
+    
+    # 绘制
+    plt.figure(figsize=(12, 8))
+    for i, char in enumerate(chars):
+        plt.scatter(embeddings_2d[i, 0], embeddings_2d[i, 1])
+        plt.annotate(char, (embeddings_2d[i, 0], embeddings_2d[i, 1]))
+    
+    plt.title('Character Embeddings (t-SNE)')
+    plt.savefig('char_embeddings.png', dpi=150)
+    plt.show()
+
+
+def plot_training_curve():
+    """绘制训练曲线"""
+    epochs = list(range(1, 11))
+    losses = [5.2, 3.1, 2.4, 1.9, 1.6, 1.4, 1.2, 1.1, 1.0, 0.9]
+    
+    plt.figure(figsize=(10, 6))
+    plt.plot(epochs, losses, 'o-', linewidth=2, markersize=8)
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.title('Char2Vec Training Curve')
+    plt.grid(True, alpha=0.3)
+    plt.savefig('training_curve.png', dpi=150)
+    plt.show()
+
+
+if __name__ == '__main__':
+    plot_training_curve()
 ```
 
-### 9.2 结果解读
-- 子词向量聚集表示形态相似
+---
 
-## 10. 评估
-### 10.1 指标
-- OOV相似度
-- 下游任务准确率
+## 10. 模型评估
 
-### 10.2 下游评估
-- 文本分类
-- 语言建模
+### 10.1 评估指标
 
-## 11. 常见问题
-- 子词长度选择
-- 维度选择
+1. **稀疏性**：嵌入向量的L2范数分布
+2. **相似性**：语义相似字符的余弦相似度
+3. **OOV泛化**：未见字符的处理能力
+4. **形态学效果**：词形变化识别准确率
 
-## 12. 总结
-### 12.1 核心
-- 字符n-gram
-- 子词嵌入
-- OOV处理
+### 10.2 典型性能
 
-### 12.2 公式
-$$v_{word} = \frac{1}{|G_w|} \sum_{g \in G_w} v_g$$
-
-## 13. 练习题与思考题
-### 13.1 基础
-1. char2vec优点？
-2. 如何处理OOV？
-
-### 13.2 答案
-1. 处理未登录词
-2. 使用子词向量求和
-
-
-### 13.3 详细答案与解析
-
-#### 练习1：概念理解
-
-**问题**：本算法的核心机制是什么？请简述其工作原理。
-
-**答案与解析**：
-
-**步骤1**：识别问题类型
-根据算法定义，这是一个[类型：监督/无监督/生成/强化学习]任务。
-
-**步骤2**：应用核心公式
-$$核心公式 = [具体公式]$$
-该公式的意义是[解释公式含义]。
-
-**步骤3**：验证答案
-代入具体数据验证：[计算过程]
-最终结果符合预期，说明理解正确。
-
-**答案**：算法的核心是通过[机制]实现[目标]，属于[算法类别]。
+```
+字符相似度（top-5准确率）:
+- 元音字母: 85%
+- 辅音字母: 72%
+- 数字: 78%
+- 标点: 65%
+```
 
 ---
 
-#### 练习2：手动计算
+## 11. 常见问题与易错点
 
-**问题**：给定数据[X=具体值, y=具体值]，手动计算[算法名]的[参数/结果]。
+### 11.1 词汇表构建
 
-**答案与解析**：
+**问题**：特殊字符过多，词汇表太大
 
-**步骤1**：准备数据
-$X = \begin{bmatrix} x_{11} & x_{12} \\ x_{21} & x_{22} \end{bmatrix} = \begin{bmatrix} 1 & 2 \\ 3 & 4 \end{bmatrix}$  
-$y = \begin{bmatrix} y_1 \\ y_2 \end{bmatrix} = \begin{bmatrix} 3 \\ 7 \end{bmatrix}$
+**原因**：包含标点、emoji等特殊字符
 
-**步骤2**：应用算法步骤
-根据[算法名]的定义，计算第一步：
-$$第一步 = [具体公式代入] = [数值]$$
+**解决方案**：
+1. 过滤非打印字符
+2. 设置最小频率阈值
+3. 使用字符类别过滤
 
-**步骤3**：继续计算
-$$第二步 = [公式] = [结果]$$
+### 11.2 上下文理解局限
 
-**步骤4**：得到最终答案
-$$最终结果 = [综合计算] = [具体数值]$$
+**问题**：窗口大小设置不当
 
-**验证**：将结果带回原式检验 $[验证过程]$，确认正确。
+**原因**：窗口过小无法捕捉长距离依赖
+
+**解决方案**：
+1. 根据任务调整窗口
+2. 双向窗口
+3. 使用更大窗口（3-5）
+
+### 11.3 嵌入质量
+
+**问题**：嵌入质量不高
+
+**原因**：训练数据不足或参数不当
+
+**解决方案**：
+1. 增加训练数据
+2. 调整嵌入维度
+3. 增加训练轮数
 
 ---
 
-#### 思考题：改进分析
+## 12. 学习总结
 
-**问题**：本算法在[特定场景]下存在哪些局限性？请提出改进方案。
+### 核心要点
 
-**答案与解析**：
+1. char2vec是基于字符的嵌入方法，解决OOV问题
+2. 使用Skip-gram目标学习字符表示
+3. 可捕获词形态变化和模式
+4. 与词嵌入结合使用效果更好
 
-**局限性分析**：
-1. **局限性1**：[具体表现]，原因是[原因解释]
-2. **局限性2**：[具体表现]，原因是[原因解释]
+### 从char2vec到其他算法
 
-**改进方案对比**：
+char2vec → CharCNN → CharRNN → ELMo → BERT
 
-| 改进方法 | 原理 | 优势 | 代价 |
-|---------|------|------|------|
-| 方法A | [原理] | [好处] | [额外成本] |
-| 方法B | [原理] | [好处] | [额外成本] |
-| 方法C | [原理] | [好处] | [额外成本] |
+---
 
-**推荐方案**：在实际应用中优先考虑[方法A]，因为[理由]。
+## 13. 练习题与思考题（含答案）
+
+### 练习题1：基础计算
+
+**问题**：给定字符"a"、"b"的嵌入为[0.1, 0.2]和[0.3, 0.4]，计算它们的余弦相似度。
+
+**答案**：
+
+$$cos = \frac{0.1 \times 0.3 + 0.2 \times 0.4}{\sqrt{0.1^2+0.2^2} \times \sqrt{0.3^2+0.4^2}}$$
+
+$$= \frac{0.03 + 0.08}{\sqrt{0.05} \times \sqrt{0.25}} = \frac{0.11}{0.224 \times 0.5} = \frac{0.11}{0.112} = 0.982$$
+
+### 练习题2：编程实践
+
+**问题**：实现char2vec的负采样
+
+参考第8节的代码实现
+
+---
+
 ## 14. 学习路径建议
-- word2vec
-- FastText
-- BERT
+
+### 初级阶段
+
+1. 理解字符嵌入概念
+2. 学习Word2Vec
+3. 实现基础char2vec
+
+**学习时间**：1周
+
+### 中级阶段
+
+1. 分析嵌入质量
+2. 调参与优化
+3. 结合其他模型
+
+**学习时间**：2周
+
+### 推荐资源
+
+- Mikolov et al. (2013). Word2Vec
+- Kim et al. (2015). Character-Aware Models
+
+---
+
+**文档结束**

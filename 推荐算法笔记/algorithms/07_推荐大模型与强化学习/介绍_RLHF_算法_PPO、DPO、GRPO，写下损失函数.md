@@ -19,7 +19,7 @@ Optimization）、DPO（Direct Preference Optimization）和 GRPO（Group Relati
 # 损失函数表达式 ：
 
 $$
-\mathcal {L} _ {\mathrm {P P O}} (\theta) = \mathbb {E} _ {(x, y) \sim D _ {\pi_ {\theta}}} \left[ \min  \left(r _ {t} (\theta) \hat {A} _ {t}, \operatorname {c l i p} (r _ {t} (\theta), 1 - \epsilon , 1 + \epsilon) \hat {A} _ {t}\right) - \beta \cdot D _ {\mathrm {K L}} \left(\pi_ {\theta} (y | x) \| \pi_ {\text {b a s e}} (y | x)\right) \right]
+\mathcal { L } _ {\mathrm {P P O}} (\theta) = \mathbb {E} _ {(x, y) \sim D _ {\pi_ {\theta}}} \left[ \min  \left(r _ {t} (\theta) \hat {A} _ {t}, \operatorname {c l i p} (r _ {t} (\theta), 1 - \epsilon , 1 + \epsilon) \hat {A} _ {t}\right) - \beta \cdot D _ {\mathrm {K L}} \left(\pi_ {\theta} (y | x) \| \pi_ {\text {b a s e}} (y | x)\right) \right]
 $$
 
 # 参数说明 ：
@@ -127,7 +127,7 @@ GRPO (Group Relative Policy Optimization) 2024 DeepSeek
 # 损失函数表达式：
 
 $$
-\mathcal {L} _ {\mathrm {G R P O}} (\theta) = \mathbb {E} _ {q \sim Q} \left[ \frac {1}{G} \sum_ {i = 1} ^ {G} \min  \left(r _ {i, t} \hat {A} _ {i, t}, \operatorname {c l i p} \left(r _ {i, t}, 1 - \epsilon , 1 + \epsilon\right) \hat {A} _ {i, t}\right) - \beta D _ {\mathrm {K L}} \left(\pi_ {\theta} \| \pi_ {\text {r e f}}\right) \right]
+\mathcal {L} _ {\mathrm{G R P O}} (\theta) = \mathbb {E} _ {q \sim Q} \left[ \frac {1}{G} \sum_ {i = 1} ^ {G} \min  \left(r _ {i, t} \hat {A} _ {i, t}, \operatorname {c l i p} \left(r _ {i, t}, 1 - \epsilon , 1 + \epsilon\right) \hat {A} _ {i, t}\right) - \beta D _ {\mathrm {K L}} \left(\pi_ {\theta} \| \pi_ {\text {r e f}}\right) \right]
 $$
 
 # 参数说明 ：
@@ -177,7 +177,7 @@ $$
 GRPO 的优化目标函数由三部分组成：
 
 $$
-\mathcal {L} _ {\mathrm {G R P O}} (\theta) = \mathbb {E} _ {q \sim Q} \left[ \frac {1}{G} \sum_ {i = 1} ^ {G} \min  \left(r _ {i, t} \hat {A} _ {i, t}, \operatorname {c l i p} \left(r _ {i, t}, 1 - \epsilon , 1 + \epsilon\right) \hat {A} _ {i, t}\right) - \beta D _ {\mathrm {K L}} \left(\pi_ {\theta} \| \pi_ {\text {r e f}}\right) \right]
+\mathcal {L} _ {\mathrm{G R P O}} (\theta) = \mathbb {E} _ {q \sim Q} \left[ \frac {1}{G} \sum_ {i = 1} ^ {G} \min  \left(r _ {i, t} \hat {A} _ {i, t}, \operatorname {c l i p} \left(r _ {i, t}, 1 - \epsilon , 1 + \epsilon\right) \hat {A} _ {i, t}\right) - \beta D _ {\mathrm {K L}} \left(\pi_ {\theta} \| \pi_ {\text {r e f}}\right) \right]
 $$
 
  策略梯度项：鼓励模型生成高奖励的输出序列，基于归一化后的优势值计算。  
@@ -197,3 +197,153 @@ $$
  依赖参考策略质量：初始参考策略（如 SFT 模型）需具备一定性能，否则影响优化效果。  
  超参数敏感：裁剪范围、KL 系数等需精细调参。
 
+# 三、PyTorch 损失函数实现
+
+```python
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+
+def ppo_loss(log_probs, old_log_probs, advantages, clip_eps=0.2):
+    """PPO Clip 损失函数"""
+    ratio = torch.exp(log_probs - old_log_probs)
+    surr1 = ratio * advantages
+    surr2 = torch.clamp(ratio, 1 - clip_eps, 1 + clip_eps) * advantages
+    loss = -torch.min(surr1, surr2).mean()
+    return loss
+
+
+def ppo_loss_with_kl(log_probs, old_log_probs, ref_log_probs, advantages, clip_eps=0.2, beta=0.1):
+    """PPO 损失 + KL 散度惩罚"""
+    ratio = torch.exp(log_probs - old_log_probs)
+    surr1 = ratio * advantages
+    surr2 = torch.clamp(ratio, 1 - clip_eps, 1 + clip_eps) * advantages
+    policy_loss = -torch.min(surr1, surr2).mean()
+    kl_penalty = (log_probs - ref_log_probs).mean()
+    return policy_loss + beta * kl_penalty
+
+
+def dpo_loss(policy_chosen_logps, policy_rejected_logps,
+             ref_chosen_logps, ref_rejected_logps, beta=0.1):
+    """DPO 损失函数"""
+    chosen_rewards = beta * (policy_chosen_logps - ref_chosen_logps)
+    rejected_rewards = beta * (policy_rejected_logps - ref_rejected_logps)
+    loss = -F.logsigmoid(chosen_rewards - rejected_rewards).mean()
+    return loss
+
+
+def grpo_loss(log_probs, old_log_probs, rewards, clip_eps=0.2, beta=0.1, ref_log_probs=None):
+    """GRPO 损失函数：组内归一化优势 + Clip + KL"""
+    mean_r = rewards.mean()
+    std_r = rewards.std() + 1e-8
+    advantages = (rewards - mean_r) / std_r
+
+    ratio = torch.exp(log_probs - old_log_probs)
+    surr1 = ratio * advantages
+    surr2 = torch.clamp(ratio, 1 - clip_eps, 1 + clip_eps) * advantages
+    clip_loss = -torch.min(surr1, surr2).mean()
+
+    kl_penalty = 0.0
+    if ref_log_probs is not None:
+        kl_penalty = beta * (log_probs - ref_log_probs).mean()
+
+    return clip_loss + kl_penalty
+
+
+class PPOTrainer:
+    """PPO 训练器骨架"""
+    def __init__(self, actor, critic, ref_model, clip_eps=0.2, beta=0.1, gamma=0.99, gae_lambda=0.95):
+        self.actor = actor
+        self.critic = critic
+        self.ref_model = ref_model
+        self.clip_eps = clip_eps
+        self.beta = beta
+        self.gamma = gamma
+        self.gae_lambda = gae_lambda
+
+    def compute_advantages(self, rewards, values, dones):
+        """GAE 优势估计"""
+        advantages = []
+        gae = 0
+        next_value = 0
+        for t in reversed(range(len(rewards))):
+            delta = rewards[t] + self.gamma * next_value * (1 - dones[t]) - values[t]
+            gae = delta + self.gamma * self.gae_lambda * (1 - dones[t]) * gae
+            advantages.insert(0, gae)
+            next_value = values[t]
+        return torch.tensor(advantages, dtype=torch.float32)
+
+    def train_step(self, states, actions, old_log_probs, rewards, dones):
+        with torch.no_grad():
+            values = self.critic(states).squeeze()
+            advantages = self.compute_advantages(rewards.tolist(), values.tolist(), dones.tolist())
+            advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+
+        log_probs = self.actor(states).gather(1, actions.unsqueeze(1)).log()
+        ref_log_probs = self.ref_model(states).gather(1, actions.unsqueeze(1)).log()
+
+        loss = ppo_loss_with_kl(log_probs.squeeze(), old_log_probs, ref_log_probs.squeeze(), advantages, self.clip_eps, self.beta)
+        return loss
+
+
+class DPOTrainer:
+    """DPO 训练器骨架"""
+    def __init__(self, policy_model, ref_model, beta=0.1, lr=1e-5):
+        self.policy = policy_model
+        self.ref_model = ref_model
+        self.beta = beta
+        self.optimizer = torch.optim.AdamW(self.policy.parameters(), lr=lr)
+
+    def train_step(self, input_ids_chosen, input_ids_rejected):
+        chosen_logps = self.policy(input_ids_chosen).log_softmax(dim=-1).sum(dim=-1)
+        rejected_logps = self.policy(input_ids_rejected).log_softmax(dim=-1).sum(dim=-1)
+
+        with torch.no_grad():
+            ref_chosen_logps = self.ref_model(input_ids_chosen).log_softmax(dim=-1).sum(dim=-1)
+            ref_rejected_logps = self.ref_model(input_ids_rejected).log_softmax(dim=-1).sum(dim=-1)
+
+        loss = dpo_loss(chosen_logps, rejected_logps, ref_chosen_logps, ref_rejected_logps, self.beta)
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+        return loss.item()
+
+
+def demo_losses():
+    """演示三种损失函数的计算"""
+    torch.manual_seed(42)
+    batch_size = 8
+
+    log_probs = torch.randn(batch_size)
+    old_log_probs = torch.randn(batch_size)
+    ref_log_probs = torch.randn(batch_size)
+    advantages = torch.randn(batch_size)
+    rewards = torch.randn(batch_size)
+
+    print("=== PPO Loss ===")
+    print(f"  {ppo_loss(log_probs, old_log_probs, advantages).item():.4f}")
+
+    print("=== DPO Loss ===")
+    pc, pr = torch.randn(4), torch.randn(4)
+    rc, rr = torch.randn(4), torch.randn(4)
+    print(f"  {dpo_loss(pc, pr, rc, rr).item():.4f}")
+
+    print("=== GRPO Loss ===")
+    print(f"  {grpo_loss(log_probs, old_log_probs, rewards, ref_log_probs=ref_log_probs).item():.4f}")
+
+
+if __name__ == "__main__":
+    demo_losses()
+```
+
+## 常见问题与易错点
+
+1. **PPO 的重要性采样比**：`ratio = exp(log_probs - old_log_probs)` 而非直接相除，数值更稳定
+2. **DPO 的参考模型必须冻结**：`ref_log_probs` 必须用 `torch.no_grad()` 包裹，否则梯度会流向参考模型
+3. **GRPO 的组大小 G**：G 过小则优势估计方差大，G 过大则计算开销高，通常取 4-16
+4. **KL 散度的方向**：KL 惩罚应为 `log π_θ - log π_ref`（正向 KL），方向反了会导致模型偏离参考策略
+
+## 学习总结
+
+PPO、DPO、GRPO 代表了 RLHF 的三代演进：PPO 需要奖励模型 + 价值网络（最复杂），DPO 去掉奖励模型直接从偏好数据学习（最简洁），GRPO 去掉价值网络用组内归一化替代（平衡效率与质量）。工程实践中，DPO 适合快速迭代，GRPO 适合可验证任务（数学/代码），PPO 仍是通用对齐的标准方案。

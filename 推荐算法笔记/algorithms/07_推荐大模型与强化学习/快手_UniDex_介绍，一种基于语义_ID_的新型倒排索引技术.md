@@ -185,7 +185,97 @@ print(f"  语义token数: {len(index.index)}")
 print(f"  平均每个token对应文档数: {np.mean([len(v) for v in index.index.values()]):.1f}")
 ```
 
-# 三、与传统稠密检索对比
+# 三、核心数学公式推导
+
+## 3.1 FSQ 有限标量量化公式
+
+FSQ 的核心是将连续向量 $z \in \mathbb{R}^d$ 离散化为有限整数编码。设每个维度的离散化级别数为 $L = [l_1, l_2, \ldots, l_d]$，其中 $l_i$ 表示第 $i$ 个维度的离散值个数。
+
+**归一化与截断**：
+
+$$\hat{z}_i = \frac{z_i}{(l_i - 1)/2}, \quad \tilde{z}_i = \tanh(\hat{z}_i)$$
+
+**量化操作**：
+
+$$q_i = \text{round}(\tilde{z}_i \cdot \frac{l_i - 1}{2}), \quad \bar{z}_i = \frac{q_i}{(l_i - 1)/2}$$
+
+其中 $q_i \in \{0, 1, \ldots, l_i - 1\}$ 为离散整数编码，$\bar{z}_i$ 为反量化后的向量分量。
+
+**直通估计器（STE）**：前向传播使用量化值 $\bar{z}$，反向传播使用连续值 $z$：
+
+$$z_{\text{STE}} = z + (\bar{z} - z) \cdot \text{stop\_gradient}()$$
+
+**码本大小计算**：
+
+$$|\mathcal{C}| = \prod_{i=1}^{d} l_i$$
+
+例如 $L = [5, 5, 8, 8, 5, 5]$ 时，码本大小为 $5 \times 5 \times 8 \times 8 \times 5 \times 5 = 40000$。
+
+## 3.2 Max-Max 匹配概率
+
+UniTouch 采用 Max-Max 匹配策略进行语义召回。设 Query 生成的语义 ID 集合为 $S_q = \{s_1^q, s_2^q, \ldots, s_{N_q}^q\}$，Doc 生成的语义 ID 集合为 $S_d = \{s_1^d, s_2^d, \ldots, s_{N_d}^d\}$，则匹配定义为：
+
+$$\text{Match}(S_q, S_d) = \mathbb{1}\left[\exists \, i, j \quad \text{s.t.} \quad s_i^q = s_j^d\right]$$
+
+召回概率可表示为：
+
+$$P(\text{recall} \mid q, d) = 1 - \prod_{i=1}^{N_q} \prod_{j=1}^{N_d} \left(1 - \mathbb{1}[s_i^q = s_j^d]\right)$$
+
+当 Query 有 $N_q = 3$ 个语义 Token，Doc 有 $N_d = 8$ 个语义 Token 时，匹配概率为：
+
+$$P(\text{recall}) \approx 1 - \left(1 - \frac{1}{|\mathcal{C}|}\right)^{N_q \cdot N_d}$$
+
+## 3.3 倒排索引评分公式
+
+倒排索引中，文档 $d$ 的匹配得分由命中的语义 Token 数量决定：
+
+$$\text{Score}(d) = \sum_{s \in S_q} \mathbb{1}[s \in I(d)]$$
+
+其中 $I(d)$ 为文档 $d$ 被索引的语义 ID 集合，$S_q$ 为查询的语义 ID 集合。
+
+**TF-IDF 加权变体**：
+
+$$\text{Score}_{\text{TF-IDF}}(d, q) = \sum_{s \in S_q \cap I(d)} \text{TF}(s, d) \cdot \text{IDF}(s)$$
+
+其中：
+
+$$\text{TF}(s, d) = \frac{\text{count}(s \in I(d))}{|I(d)|}, \quad \text{IDF}(s) = \log \frac{N}{|\{d' : s \in I(d')\}| + 1}$$
+
+$N$ 为文档总数。
+
+## 3.4 语义相似度计算
+
+在 UniRank 精排阶段，Query 的第 $i$ 个语义 Token $q_i$ 与 Doc 的第 $j$ 个语义 Token $d_j$ 之间的相似度通过多头注意力计算：
+
+$$\text{Attention}(Q, K, V) = \text{softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right)V$$
+
+最终的相关性得分通过 Token 级别的精细交互得到：
+
+$$R(q, d) = \frac{1}{N_q} \sum_{i=1}^{N_q} \text{MLP}\left(\sum_{j=1}^{N_d} \alpha_{ij} \cdot d_j\right)$$
+
+其中注意力权重 $\alpha_{ij}$ 为：
+
+$$\alpha_{ij} = \frac{\exp(q_i^\top W_a d_j / \sqrt{d_k})}{\sum_{j'=1}^{N_d} \exp(q_i^\top W_a d_{j'} / \sqrt{d_k})}$$
+
+## 3.5 对比损失函数
+
+UniTouch 的训练采用 InfoNCE 对比损失，使匹配的 Query-Doc 对更接近，不匹配的对更远离：
+
+$$\mathcal{L}_{\text{contrast}} = -\log \frac{\exp(\text{sim}(z_q, z_d^+) / \tau)}{\exp(\text{sim}(z_q, z_d^+) / \tau) + \sum_{k=1}^{K} \exp(\text{sim}(z_q, z_d^-) / \tau)}$$
+
+其中 $z_d^+$ 为正样本，$z_d^-$ 为负样本，$\tau$ 为温度系数，$\text{sim}(\cdot, \cdot)$ 为余弦相似度。
+
+## 3.6 应用场景对比
+
+| 应用场景 | UniDex 适用性 | 原因 |
+|---------|-------------|------|
+| 短视频搜索 | 极高 | 语义理解强，响应延迟低 |
+| 电商搜索 | 高 | 可利用商品语义属性构建索引 |
+| 新闻推荐 | 高 | 语义ID天然处理同义词扩展 |
+| 长尾查询场景 | 极高 | 语义泛化能力强 |
+| 精确关键词搜索 | 中 | 离散化可能损失字面精确匹配 |
+
+# 四、与传统稠密检索对比
 
 ## 3.1 方法对比
 

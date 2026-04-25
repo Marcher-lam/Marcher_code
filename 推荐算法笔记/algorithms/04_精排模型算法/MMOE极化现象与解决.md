@@ -210,3 +210,99 @@ MMoE 极化是多任务学习中的常见陷阱，根源在于 Softmax 指数放
 - **前置知识**：MMoE、多任务学习、Softmax 性质
 - **进阶方向**：PLE、AITM、ESSM 多任务、MoE 路由优化
 - **推荐论文**：MMoE (KDD 2018)、PLE (RecSys 2020)
+
+## 11. 极化解决方案详细对比与选型指南
+
+### 11.1 各方案的效果与成本对比
+
+| 方案 | 原理 | 极化缓解效果 | 任务性能影响 | 工程改动量 | 训练稳定性 | 生产推荐度 |
+|------|------|------------|------------|-----------|-----------|-----------|
+| PLE | 分离共享/任务专家 | ★★★★★ | 正向（提升多任务效果） | 大（模型结构变更） | 高 | ★★★★★ |
+| 温度缩放 | 平滑 Softmax 分布 | ★★★☆☆ | 轻微负向（过度平滑） | 小（一个参数） | 高 | ★★★★☆ |
+| Dropout 正则 | 随机丢弃门控权重 | ★★★☆☆ | 轻微负向 | 小 | 中 | ★★★☆☆ |
+| Load Balance Loss | 约束专家均匀利用 | ★★★★☆ | 可能负向（限制特化） | 小 | 中 | ★★★★☆ |
+| 梯度干预 | 阻止极化加深 | ★★☆☆☆ | 不确定 | 中 | 低 | ★★☆☆☆ |
+| Top-K 路由 | 只取 Top-K 专家 | ★★★★☆ | 正向（稀疏激活提效） | 中 | 高 | ★★★★☆ |
+| 噪声注入 | 门控 logits 加噪声 | ★★★☆☆ | 轻微负向 | 小 | 中 | ★★★☆☆ |
+
+### 11.2 PLE vs MMoE vs Snorkel 对比
+
+| 维度 | MMoE | PLE | Snorkel（弱监督多任务） |
+|------|------|-----|----------------------|
+| 专家共享方式 | 全部共享 | 共享专家 + 任务专家 | 无共享（独立标注函数） |
+| 门控设计 | 任务独立门控 | 层次化路由 | 无门控 |
+| 极化风险 | 高（全部专家竞争） | 低（任务专家隔离） | 无（不使用专家） |
+| 参数效率 | 中 | 中高 | 低（无参数共享） |
+| 适用任务数 | 2-5 个 | 2-10 个 | 任意多 |
+| 训练难度 | 低 | 中 | 高（标注函数设计） |
+
+### 11.3 详细的极化诊断代码
+
+```python
+import torch
+import torch.nn as nn
+import numpy as np
+from collections import defaultdict
+
+class PolarizationDiagnostics:
+    def __init__(self, model, num_experts):
+        self.model = model
+        self.num_experts = num_experts
+        self.history = defaultdict(list)
+
+    def collect_gate_weights(self, dataloader, max_batches=100):
+        gate_weights = {f'task_{t}': [] for t in range(len(self.model.gates))}
+        self.model.eval()
+        with torch.no_grad():
+            for i, (x, _) in enumerate(dataloader):
+                if i >= max_batches:
+                    break
+                for t, gate in enumerate(self.model.gates):
+                    logits = gate(x)
+                    weights = torch.softmax(logits, dim=-1)
+                    gate_weights[f'task_{t}'].append(weights.cpu().numpy())
+        return gate_weights
+
+    def analyze(self, gate_weights):
+        results = {}
+        for task, weights_list in gate_weights.items():
+            all_weights = np.concatenate(weights_list, axis=0)
+            max_w = all_weights.max(axis=-1).mean()
+            entropy = -np.sum(all_weights * np.log(all_weights + 1e-8), axis=-1).mean()
+            max_entropy = np.log(self.num_experts)
+            normalized_entropy = entropy / max_entropy
+            expert_usage = (all_weights.argmax(axis=-1) == np.arange(
+                self.num_experts)[np.newaxis, :]).mean(axis=0)
+            results[task] = {
+                'avg_max_weight': float(max_w),
+                'normalized_entropy': float(normalized_entropy),
+                'expert_usage_ratio': expert_usage.tolist(),
+                'is_polarized': max_w > 0.8 or normalized_entropy < 0.3
+            }
+            self.history[task].append(results[task])
+        return results
+
+    def suggest_fix(self, results):
+        for task, metrics in results.items():
+            if metrics['is_polarized']:
+                print(f"\n[{task}] 检测到极化!")
+                print(f"  平均最大权重: {metrics['avg_max_weight']:.4f}")
+                print(f"  归一化熵: {metrics['normalized_entropy']:.4f}")
+                print(f"  专家利用率: {[f'{r:.2%}' for r in metrics['expert_usage_ratio']]}")
+                if metrics['normalized_entropy'] < 0.2:
+                    print("  → 严重极化，建议采用 PLE 架构重构")
+                elif metrics['avg_max_weight'] > 0.8:
+                    print("  → 建议增大门控温度至 2.0-5.0，或添加 Load Balance Loss")
+                else:
+                    print("  → 建议在门控 logits 后添加 Dropout(drop_rate=0.1)")
+            else:
+                print(f"\n[{task}] 状态正常 (熵={metrics['normalized_entropy']:.4f})")
+```
+
+### 11.4 生产环境极化防治最佳实践
+
+1. **训练初期监控**：在前 1000 步就检查门控分布，极化通常在训练早期形成
+2. **PLE 作为首选方案**：结构变更虽大，但效果最稳定，阿里巴巴/腾讯均已大规模部署
+3. **组合策略**：PLE + 温度调度 + Load Balance Loss 组合效果最优
+4. **定期巡检**：线上模型定期输出门控权重统计，发现极化及时重训练
+5. **专家数量选择**：专家数量通常为任务数的 2-4 倍，过少无法覆盖模式，过多加剧稀疏

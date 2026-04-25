@@ -15,6 +15,72 @@
 
 从数学角度看，ReLU 激活函数构成的神经网络是连续的分段线性函数，而树模型是分段常数函数。当目标函数存在剧烈跳变时，分段常数拟合天然更高效。研究表明，在合成数据集上，当目标函数包含大量阶跃型突变时，MLP 需要 10 倍以上的参数量才能达到树模型的拟合效果。
 
+# 1.5 核心数学公式推导
+
+## XGBoost 目标函数
+
+XGBoost 采用加法模型和二阶泰勒展开来优化目标函数。设第 $t$ 轮的预测值为 $\hat{y}_i^{(t)} = \hat{y}_i^{(t-1)} + f_t(x_i)$，目标函数为：
+
+$$\text{Obj}^{(t)} = \sum_{i=1}^{n} l\left(y_i, \hat{y}_i^{(t-1)} + f_t(x_i)\right) + \Omega(f_t)$$
+
+其中正则化项：
+
+$$\Omega(f) = \gamma T + \frac{1}{2} \lambda \|\mathbf{w}\|^2$$
+
+$T$ 为叶子节点数，$\mathbf{w}$ 为叶子权重向量。
+
+## 二阶泰勒展开
+
+对损失函数 $l$ 在 $\hat{y}_i^{(t-1)}$ 处做二阶泰勒展开：
+
+$$l\left(y_i, \hat{y}_i^{(t-1)} + f_t(x_i)\right) \approx l\left(y_i, \hat{y}_i^{(t-1)}\right) + g_i f_t(x_i) + \frac{1}{2} h_i f_t^2(x_i)$$
+
+其中一阶和二阶梯度分别为：
+
+$$g_i = \frac{\partial l(y_i, \hat{y}_i^{(t-1)})}{\partial \hat{y}_i^{(t-1)}}, \quad h_i = \frac{\partial^2 l(y_i, \hat{y}_i^{(t-1)})}{\partial (\hat{y}_i^{(t-1)})^2}$$
+
+移除常数项后，简化目标函数：
+
+$$\tilde{\text{Obj}}^{(t)} = \sum_{i=1}^{n} \left[g_i f_t(x_i) + \frac{1}{2} h_i f_t^2(x_i)\right] + \gamma T + \frac{1}{2} \lambda \sum_{j=1}^{T} w_j^2$$
+
+## 树分裂增益公式
+
+将样本按叶子节点划分后，定义 $I_j = \{i \mid q(x_i) = j\}$ 为叶子 $j$ 的样本集。最优叶子权重为：
+
+$$w_j^* = -\frac{\sum_{i \in I_j} g_i}{\sum_{i \in I_j} h_i + \lambda}$$
+
+对应的最优目标值：
+
+$$\text{Obj}^* = -\frac{1}{2} \sum_{j=1}^{T} \frac{(\sum_{i \in I_j} g_i)^2}{\sum_{i \in I_j} h_i + \lambda} + \gamma T$$
+
+**分裂增益**：将叶子 $j$ 分裂为左子树 $L$ 和右子树 $R$ 后的增益：
+
+$$\text{Gain} = \frac{(\sum_{i \in I_L} g_i)^2}{\sum_{i \in I_L} h_i + \lambda} + \frac{(\sum_{i \in I_R} g_i)^2}{\sum_{i \in I_R} h_i + \lambda} - \frac{(\sum_{i \in I_j} g_i)^2}{\sum_{i \in I_j} h_i + \lambda} - \gamma$$
+
+当 $\text{Gain} > 0$ 时才进行分裂，$\gamma$ 起到了预剪枝的作用。
+
+## 神经网络平滑性偏置的数学形式化
+
+考虑一个 $L$ 层的 ReLU 神经网络 $f_\theta: \mathbb{R}^d \to \mathbb{R}$：
+
+$$f_\theta(x) = W_L \cdot \text{ReLU}(W_{L-1} \cdots \text{ReLU}(W_1 x + b_1) \cdots + b_{L-1}) + b_L$$
+
+**分段线性性质**：ReLU 网络是连续分段线性函数，其 "平滑性" 体现为：
+
+$$\|f_\theta(x + \delta) - f_\theta(x)\| \leq \prod_{l=1}^{L} \|W_l\| \cdot \|\delta\|$$
+
+**谱偏置（Spectral Bias）**：神经网络倾向于优先学习低频分量。Neyshabur 等人证明，参数为 $\theta$ 的网络的有效平滑度受限于：
+
+$$\text{Lip}(f_\theta) \leq \prod_{l=1}^{L} \|W_l\|_{\text{op}}$$
+
+而树模型（深度为 $D$，$2^D$ 个叶节点的完全二叉树）的分段常数函数可以表示为：
+
+$$f_{\text{tree}}(x) = \sum_{j=1}^{2^D} c_j \cdot \mathbb{1}[x \in R_j]$$
+
+其中 $R_j$ 为叶节点 $j$ 的决策区域。这种分段常数函数可以精确拟合任意阶跃变化，无需平滑过渡。
+
+**对比总结**：当目标函数 $y^*(x)$ 包含阶跃突变 $y^*(x) = c_1 \cdot \mathbb{1}[x_k > t] + c_2 \cdot \mathbb{1}[x_k \leq t]$ 时，树模型仅需 1 次分裂即可精确拟合，而 ReLU 网络需要 $O(1/\epsilon)$ 个神经元以 $\epsilon$ 精度逼近该阶跃函数。
+
 # 2. 树模型对噪音特征更具鲁棒性
 
 特征选择机制：树模型在分裂节点时通过信息增益、基尼系数等指标自动筛选重要特征，天然忽略噪音特征（如随机噪声或无关特征列）。  

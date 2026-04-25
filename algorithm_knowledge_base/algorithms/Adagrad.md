@@ -388,3 +388,183 @@ $$最终结果 = f(第一计算, 第二计算) = [最终值]$$
 ## 14. 学习路径建议建议
 
 学习Adagrad建议按照以下路径进行：首先学习标准SGD；然后学习自适应学习率的概念；学习Adagrad的数学推导；在实际任务中使用并观察学习率衰减；学习后续改进版本Adadelta、RMSprop、Adam。
+
+---
+
+## 补充材料：Adagrad变体与扩展
+
+### A1. Adagrad与稀疏梯度问题的深入分析
+
+在处理稀疏特征时，标准Adagrad可能面临梯度累积过快衰减的问题。一种改进方案是采用"梯度归一化"策略：
+
+$$G_{t,i} = \beta \cdot G_{t-1,i} + (1-\beta) \cdot g_{t,i}^2$$
+
+其中β是衰减系数（通常设为0.9），这种改进使累积梯度能够更好地适应非平稳的数据分布。
+
+另一种改进是" AdaGrad "的"窗口"版本，只维护最近W个时间步的梯度累积：
+
+$$G_{t,i} = \sum_{k=\max(1,t-W)}^{t} g_{k,i}^2$$
+
+这种方法可以更好地适应数据分布随时间变化的情况。
+
+### A2. Adagrad的收敛性证明
+
+**定理**：对于凸优化问题，Adagrad的收敛速率可达$O(1/\sqrt{T})$，其中T是迭代次数。
+
+**证明概要**：
+设$f_t$是第t步的凸损失函数，$\theta^*$是最优解。定义$g_{t,i}$为$\nabla f_t(\theta_{t-1})_i$的第i个分量。
+
+使用Adagrad更新，有：
+$$\theta_{t,i} = \theta_{t-1,i} - \frac{\alpha}{\sqrt{G_{t,i} + \epsilon}} g_{t,i}$$
+
+定义潜在函数$\Phi_t(\theta) = f_t(\theta) + \frac{1}{2\alpha}\sum_{i=1}^d (\sqrt{G_{t,i} + \epsilon)(\theta_i - \theta_{t-1,i})^2$
+
+通过分析$\Phi_t$的期望上界，可以得到：
+$$\mathbb{E}[f(\bar{\theta}_T)] - f(\theta^*) \leq O\left(\frac{d}{\alpha\sqrt{T}} + \frac{\alpha}{T}\sum_{i=1}^d \|g_{1:T,i}\|_2\right)$$
+
+其中$\bar{\theta}_T = \frac{1}{T}\sum_{t=1}^T \theta_t$是平均参数。
+
+### A3. Adagrad在不同任务中的超参数设置
+
+| 任务类型 | 学习率α | ε | 预期效果 |
+|----------|--------|------|----------|
+| 文本分类 | 0.1-0.5 | 1e-8 | 快速收敛 |
+| 推荐系统 | 0.01-0.05 | 1e-10 | 稳定收敛 |
+| 图像生成 | 0.001-0.01 | 1e-10 | 精细调优 |
+| 语言模型 | 0.05-0.2 | 1e-8 | 平衡速度 |
+
+### A4. Adagrad可视化示例
+
+```python
+import numpy as np
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+
+def visualize_adagrad_3d():
+    """可视化Adagrad在3D参数空间中的轨迹"""
+    np.random.seed(42)
+    
+    # 目标函数：Rosenbrock函数（修改版）
+    def rosenbrock(x, y, a=1, b=100):
+        return (a - x)**2 + b * (y - x**2)**2
+    
+    def rosenbrock_grad(x, y, a=1, b=100):
+        dx = -2*(a - x) - 4*b*x*(y - x**2)
+        dy = 2*b*(y - x**2)
+        return np.array([dx, dy])
+    
+    # Adagrad优化
+    def adagrad_optimize(x_init, y_init, lr=0.01, n_iter=100):
+        x, y = x_init, y_init
+        G = np.zeros(2)
+        path = [(x, y)]
+        
+        for _ in range(n_iter):
+            grad = rosenbrock_grad(x, y)
+            G += grad ** 2
+            adjusted_lr = lr / (np.sqrt(G) + 1e-10)
+            delta = adjusted_lr * grad
+            x -= delta[0]
+            y -= delta[1]
+            path.append((x, y))
+        
+        return np.array(path)
+    
+    # SGD优化（对��）
+    def sgd_optimize(x_init, y_init, lr=0.001, n_iter=100):
+        x, y = x_init, y_init
+        path = [(x, y)]
+        
+        for _ in range(n_iter):
+            grad = rosenbrock_grad(x, y)
+            x -= lr * grad[0]
+            y -= lr * grad[1]
+            path.append((x, y))
+        
+        return np.array(path)
+    
+    # 运行优化
+    np.random.seed(42)
+    adagrad_path = adagrad_optimize(-1, 2, n_iter=200)
+    sgd_path = sgd_optimize(-1, 2, lr=0.0005, n_iter=200)
+    
+    # 可视化
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+    
+    # 2D轨迹
+    x_range = np.linspace(-2, 3, 100)
+    y_range = np.linspace(-1, 5, 100)
+    X, Y = np.meshgrid(x_range, y_range)
+    Z = rosenbrock(X, Y)
+    
+    ax1 = axes[0]
+    ax1.contour(X, Y, Z, levels=np.logspace(0, 3, 20), cmap='viridis', alpha=0.6)
+    ax1.plot(sgd_path[:, 0], sgd_path[:, 1], 'r.-', label='SGD', alpha=0.7, markersize=3)
+    ax1.plot(adagrad_path[:, 0], adagrad_path[:, 1], 'b.-', label='Adagrad', alpha=0.7, markersize=3)
+    ax1.plot(-1, 2, 'go', markersize=10, label='Start')
+    ax1.plot(1, 1, 'r*', markersize=15, label='Optimum')
+    ax1.set_xlabel('x')
+    ax1.set_ylabel('y')
+    ax1.set_title('Optimization Trajectory (2D)')
+    ax1.legend()
+    ax1.set_xlim(-2, 3)
+    ax1.set_ylim(-1, 5)
+    
+    # 损失曲线
+    ax2 = axes[1]
+    sgd_losses = [rosenbrock(p[0], p[1]) for p in sgd_path]
+    adagrad_losses = [rosenbrock(p[0], p[1]) for p in adagrad_path]
+    
+    ax2.semilogy(sgd_losses, 'r-', label='SGD', linewidth=2)
+    ax2.semilogy(adagrad_losses, 'b-', label='Adagrad', linewidth=2)
+    ax2.set_xlabel('Iteration')
+    ax2.set_ylabel('Loss (log scale)')
+    ax2.set_title('Convergence Comparison')
+    ax2.legend()
+    ax2.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.savefig('adagrad_3d_trajectory.png', dpi=150)
+    plt.show()
+
+
+def analyze_learning_rate_decay_pattern():
+    """分析不同梯度模式下的学习率衰减"""
+    np.random.seed(42)
+    
+    patterns = {
+        'sparse': np.random.randn(100) * 0.1,
+        'dense': np.random.randn(100),
+        'increasing': np.linspace(0.1, 2, 100),
+        'burst': np.concatenate([np.ones(50)*0.1, np.ones(50)*2])
+    }
+    
+    fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+    
+    for idx, (name, grads) in enumerate(patterns.items()):
+        ax = axes[idx // 2, idx % 2
+        G = np.zeros(2)
+        lr = 0.1
+        effective_lrs = []
+        
+        for grad in grads:
+            G += grad ** 2
+            adjusted_lr = lr / np.sqrt(G + 1e-10)
+            effective_lrs.append(adjusted_lr[0])
+        
+        ax.plot(effective_lrs, 'b-', linewidth=2)
+        ax.set_title(f'Gradient Pattern: {name}')
+        ax.set_xlabel('Step')
+        ax.set_ylabel('Effective LR')
+        ax.grid(True, alpha=0.3)
+        ax.set_yscale('log')
+    
+    plt.tight_layout()
+    plt.savefig('adagrad_lr_patterns.png', dpi=150)
+    plt.show()
+
+
+if __name__ == '__main__':
+    visualize_adagrad_3d()
+    analyze_learning_rate_decay_pattern()
+```

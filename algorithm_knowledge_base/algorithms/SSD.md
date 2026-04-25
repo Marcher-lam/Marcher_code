@@ -114,38 +114,410 @@ def use_pretrained_ssd():
 ## 8. 手工代码实现
 
 ```python
-# 第8章手工代码实现（根据具体算法补充核心逻辑）
-# 传统ML算法使用NumPy，深度学习算法使用PyTorch
-# 此处为通用框架示例
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import numpy as np
 
-class ManualImplementation:
-    def __init__(self, **kwargs):
-        self.params = {}
-        for k, v in kwargs.items():
-            setattr(self, k, v)
+class DefaultBoxGenerator:
+    """SSD Default Boxes生成器"""
+    
+    def __init__(self, config):
+        self.config = config
+        self.image_size = config['image_size']
+        self.feature_maps = config['feature_maps']
+        self.scales = config['scales']
+        self.aspect_ratios = config['aspect_ratios']
+    
+    def generate(self):
+        """生成所有default boxes"""
+        default_boxes = []
+        
+        for k, (feat_h, feat_w) in enumerate(self.feature_maps):
+            scale = self.scales[k]
+            next_scale = self.scales[k + 1] if k + 1 < len(self.scales) else 1.0
+            
+            for i in range(feat_h):
+                for j in range(feat_w):
+                    cx = (j + 0.5) / feat_w
+                    cy = (i + 0.5) / feat_h
+                    
+                    default_boxes.append([cx, cy, scale, scale])
+                    
+                    for ar in self.aspect_ratios[k]:
+                        w = scale * np.sqrt(ar)
+                        h = scale / np.sqrt(ar)
+                        default_boxes.append([cx, cy, w, h])
+        
+        default_boxes = torch.tensor(default_boxes, dtype=torch.float32)
+        
+        default_boxes[:, 0] *= self.image_size
+        default_boxes[:, 1] *= self.image_size
+        default_boxes[:, 2] *= self.image_size
+        default_boxes[:, 3] *= self.image_size
+        
+        return default_boxes
 
-    def fit(self, X, y):
-        """训练模型"""
-        # 核心训练逻辑
-        pass
 
-    def predict(self, X):
-        """预测"""
-        return X
-```
+class ConvDetHead(nn.Module):
+    """检测头：卷积层 + 分类/回归"""
+    
+    def __init__(self, in_channels, num_classes, num_anchors):
+        super().__init__()
+        self.num_classes = num_classes
+        self.num_anchors = num_anchors
+        
+        self.loc_conv = nn.Conv2d(in_channels, num_anchors * 4, 3, padding=1)
+        self.conf_conv = nn.Conv2d(in_channels, num_anchors * num_classes, 3, padding=1)
+        
+        self._init_weights()
+    
+    def _init_weights(self):
+        nn.init.xavier_normal_(self.loc_conv.weight)
+        nn.init.constant_(self.loc_conv.bias, 0)
+        nn.init.xavier_normal_(self.conf_conv.weight)
+        nn.init.constant_(self.conf_conv.bias, 0)
+    
+    def forward(self, x):
+        batch_size = x.size(0)
+        
+        loc = self.loc_conv(x)
+        loc = loc.permute(0, 2, 3, 1).contiguous()
+        loc = loc.view(batch_size, -1, 4)
+        
+        conf = self.conf_conv(x)
+        conf = conf.permute(0, 2, 3, 1).contiguous()
+        conf = conf.view(batch_size, -1, self.num_classes)
+        
+        return loc, conf
 
-### 8.1 核心算法手写
 
-手工实现核心算法逻辑，仅依赖基础库（NumPy/PyTorch），不调用高级API。
+class SSD300(nn.Module):
+    """SSD300模型实现"""
+    
+    def __init__(self, num_classes=21):
+        super().__init__()
+        self.num_classes = num_classes
+        
+        self.base = nn.Sequential(
+            nn.Conv2d(3, 64, 3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(64, 64, 3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(2, 2),
+            
+            nn.Conv2d(64, 128, 3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(128, 128, 3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(2, 2),
+            
+            nn.Conv2d(128, 256, 3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(256, 256, 3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(256, 256, 3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(2, 2),
+            
+            nn.Conv2d(256, 512, 3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(512, 512, 3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(512, 512, 3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(2, 2),
+            
+            nn.Conv2d(512, 1024, 3, padding=1),
+            nn.ReLU(inplace=True),
+        )
+        
+        self.extra = nn.Sequential(
+            nn.Conv2d(1024, 1024, 1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(1024, 1024, 3, padding=1, stride=2),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(1024, 1024, 1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(1024, 1024, 3, padding=1),
+            nn.ReLU(inplace=True),
+        )
+        
+        self.loc = nn.ModuleList([
+            ConvDetHead(512, num_classes, 4),
+            ConvDetHead(512, num_classes, 6),
+            ConvDetHead(256, num_classes, 6),
+            ConvDetHead(256, num_classes, 4),
+            ConvDetHead(256, num_classes, 4),
+            ConvDetHead(256, num_classes, 4),
+        ])
+        
+        self.conf = nn.ModuleList([
+            ConvDetHead(512, num_classes, 4),
+            ConvDetHead(512, num_classes, 6),
+            ConvDetHead(256, num_classes, 6),
+            ConvDetHead(256, num_classes, 4),
+            ConvDetHead(256, num_classes, 4),
+            ConvDetHead(256, num_classes, 4),
+        ])
+        
+        self._init_weights()
+    
+    def _init_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.xavier_normal_(m.weight)
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+    
+    def forward(self, x):
+        sources = []
+        x = self.base(x)
+        sources.append(x)
+        
+        for i, layer in enumerate(self.extra):
+            x = layer(x)
+            if i % 3 == 2 or i == len(self.extra) - 1:
+                sources.append(x)
+        
+        loc = []
+        conf = []
+        for i, (x, loc_layer, conf_layer) in enumerate(zip(sources, self.loc, self.conf)):
+            loc_pred, conf_pred = loc_layer(x), conf_layer(x)
+            loc.append(loc_pred)
+            conf.append(conf_pred)
+        
+        loc = torch.cat(loc, dim=1)
+        conf = torch.cat(conf, dim=1)
+        
+        return loc, conf
 
-### 8.2 与调库结果对比
 
-| 方法 | 准确率 | 训练时间 | 参数量 |
-|------|--------|----------|--------|
-| 调库实现 | XX% | XXs | XX |
-| 手工实现 | XX% | XXs | XX |
+class SSDLoss(nn.Module):
+    """SSD损失函数"""
+    
+    def __init__(self, num_classes=21, alpha=1.0):
+        super().__init__()
+        self.num_classes = num_classes
+        self.alpha = alpha
+    
+    def forward(self, loc_preds, conf_preds, loc_targets, conf_targets):
+        """
+        计算SSD总损失
+        loc_preds: [batch, num_priors, 4]
+        conf_preds: [batch, num_priors, num_classes]
+        loc_targets: [num_priors, 4]
+        conf_targets: [num_priors]
+        """
+        batch_size = loc_preds.size(0)
+        num_priors = loc_preds.size(1)
+        
+        loc_targets = loc_targets.unsqueeze(0).repeat(batch_size, 1, 1)
+        conf_targets = conf_targets.unsqueeze(0).repeat(batch_size, 1)
+        
+        pos_mask = conf_targets > 0
+        neg_mask = ~pos_mask
+        
+        pos_loc_preds = loc_preds[pos_mask].view(-1, 4)
+        pos_loc_targets = loc_targets[pos_mask].view(-1, 4)
+        
+        loc_loss = F.smooth_l1_loss(pos_loc_preds, pos_loc_targets, reduction='sum')
+        
+        conf_loss = F.cross_entropy(
+            conf_preds.view(-1, self.num_classes),
+            conf_targets.view(-1),
+            reduction='none'
+        )
+        conf_loss = conf_loss.view(batch_size, -1)
+        
+        pos_loss = conf_loss * pos_mask.float()
+        neg_loss = conf_loss * neg_mask.float()
+        
+        num_pos = pos_mask.sum(dim=1, keepdim=True).float()
+        num_neg = (neg_mask.sum(dim=1, keepdim=True) * 3).clamp(min=1)
+        
+        pos_loss = pos_loss.sum(dim=1, keepdim=True) / num_pos
+        neg_loss = neg_loss.sum(dim=1, keepdim=True) / num_neg
+        
+        conf_loss = (pos_loss + neg_loss).mean()
+        
+        total_loss = self.alpha * loc_loss / batch_size + conf_loss
+        
+        return total_loss
 
-手工实现与调库结果接近，验证了实现的正确性。
+
+class AnchorMatcher:
+    """Anchor匹配器"""
+    
+    def __init__(self, config):
+        self.config = config
+        self.num_classes = config['num_classes']
+    
+    def match(self, default_boxes, gt_boxes, gt_labels, threshold=0.5):
+        """
+        匹配default boxes到ground truth
+        default_boxes: [num_priors, 4]
+        gt_boxes: [num_gt, 4]
+        gt_labels: [num_gt]
+        """
+        num_priors = default_boxes.size(0)
+        num_gt = gt_boxes.size(0)
+        
+        ious = self.box_iou(default_boxes, gt_boxes)
+        
+        best_ious, best_gt_idx = ious.max(dim=1)
+        best_default_idx = ious.max(dim=0)[1]
+        
+        loc_targets = torch.zeros(num_priors, 4)
+        conf_targets = torch.zeros(num_priors, dtype=torch.long)
+        
+        for i in range(num_priors):
+            if best_ious[i] >= threshold:
+                gt_idx = best_gt_idx[i]
+                loc_targets[i] = self.encode_box(
+                    default_boxes[i], gt_boxes[gt_idx]
+                )
+                conf_targets[i] = gt_labels[gt_idx]
+        
+        for i in range(num_gt):
+            idx = best_default_idx[i]
+            if ious[idx, i] > best_ious[idx]:
+                best_ious[idx] = ious[idx, i]
+                best_gt_idx[idx] = i
+                loc_targets[idx] = self.encode_box(
+                    default_boxes[idx], gt_boxes[i]
+                )
+                conf_targets[idx] = gt_labels[i]
+        
+        return loc_targets, conf_targets
+    
+    def box_iou(self, boxes1, boxes2):
+        """计算IoU"""
+        area1 = (boxes1[:, 2] - boxes1[:, 0]) * (boxes1[:, 3] - boxes1[:, 1])
+        area2 = (boxes2[:, 2] - boxes2[:, 0]) * (boxes2[:, 3] - boxes2[:, 1])
+        
+        inter_x1 = torch.max(boxes1[:, None, 0], boxes2[None, :, 0])
+        inter_y1 = torch.max(boxes1[:, None, 1], boxes2[None, :, 1])
+        inter_x2 = torch.min(boxes1[:, None, 2], boxes2[None, :, 2])
+        inter_y2 = torch.min(boxes1[:, None, 3], boxes2[None, :, 3])
+        
+        inter_area = (inter_x2 - inter_x1).clamp(min=0) * (inter_y2 - inter_y1).clamp(min=0)
+        
+        union_area = area1[:, None] + area2[None, :] - inter_area
+        
+        ious = inter_area / union_area
+        return ious
+    
+    def encode_box(self, default_box, gt_box):
+        """编码box：转换为相对于default box的偏移"""
+        cx_d, cy_d, w_d, h_d = default_box
+        cx, cy, w, h = gt_box
+        
+        dx = (cx - cx_d) / w_d
+        dy = (cy - cy_d) / h_d
+        dw = torch.log(w / w_d)
+        dh = torch.log(h / h_d)
+        
+        return torch.tensor([dx, dy, dw, dh])
+
+
+def compute_map(preds, targets, iou_threshold=0.5):
+    """计算mAP"""
+    from collections import defaultdict
+    
+    class_detections = defaultdict(list)
+    
+    for pred in preds:
+        img_id = pred['image_id']
+        class_id = pred['class_id']
+        bbox = pred['bbox']
+        score = pred['score']
+        class_detections[class_id].append((img_id, bbox, score))
+    
+    class_ap = {}
+    
+    for class_id, detections in class_detections.items():
+        if class_id not in targets:
+            continue
+        
+        class_targets = targets[class_id]
+        
+        tp = 0
+        fp = 0
+        scores = sorted([d[2] for d in detections], reverse=True)
+        
+        for score in scores:
+            matched = False
+            for img_id, bbox in detections:
+                if img_id in class_targets:
+                    iou = compute_iou(bbox, class_targets[img_id])
+                    if iou >= iou_threshold:
+                        matched = True
+                        break
+            
+            if matched:
+                tp += 1
+            else:
+                fp += 1
+        
+        precision = tp / (tp + fp) if tp + fp > 0 else 0
+        recall = tp / len(class_targets) if len(class_targets) > 0 else 0
+        
+        class_ap[class_id] = precision * recall
+    
+    return sum(class_ap.values()) / len(class_ap) if class_ap else 0
+
+
+def compute_iou(box1, box2):
+    """计算IoU"""
+    x1 = max(box1[0], box2[0])
+    y1 = max(box1[1], box2[1])
+    x2 = min(box1[2], box2[2])
+    y2 = min(box1[3], box2[3])
+    
+    inter = max(0, x2 - x1) * max(0, y2 - y1)
+    
+    area1 = (box1[2] - box1[0]) * (box1[3] - box1[1])
+    area2 = (box2[2] - box2[0]) * (box2[3] - box2[1])
+    
+    union = area1 + area2 - inter
+    
+    return inter / union if union > 0 else 0
+
+
+if __name__ == '__main__':
+    config = {
+        'image_size': 300,
+        'num_classes': 21,
+        'feature_maps': [(38, 38), (19, 19), (10, 10), (5, 5), (3, 3), (1, 1)],
+        'scales': [0.2, 0.37, 0.54, 0.71, 0.88, 1.05],
+        'aspect_ratios': [[2], [2, 3], [2, 3], [2, 3], [2], [2]],
+    }
+    
+    model = SSD300(num_classes=21)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    criterion = SSDLoss(num_classes=21)
+    
+    default_boxes = DefaultBoxGenerator(config).generate()
+    print(f"Default boxes shape: {default_boxes.shape}")
+    
+    x = torch.randn(4, 3, 300, 300)
+    
+    loc_preds, conf_preds = model(x)
+    print(f"Loc predictions shape: {loc_preds.shape}")
+    print(f"Conf predictions shape: {conf_preds.shape}")
+    
+    gt_boxes = torch.tensor([[50, 50, 150, 150], [100, 100, 200, 200]])
+    gt_labels = torch.tensor([1, 2])
+    
+    matcher = AnchorMatcher(config)
+    loc_targets, conf_targets = matcher.match(default_boxes, gt_boxes, gt_labels)
+    
+    loss = criterion(loc_preds, conf_preds, loc_targets, conf_targets)
+    print(f"Loss: {loss.item():.4f}")
 
 
 ## 9. 可视化与结果理解
@@ -373,3 +745,203 @@ $$\theta \leftarrow \theta - \eta \nabla_\theta L$$
 **在线课程**：
 - Andrew Ng机器学习课程
 - 李宏毅机器学习课程
+
+---
+
+## 补充材料：SSD变体与扩展
+
+### A1. SSD的不同骨干网络
+
+SSD可以使用不同的骨干网络：
+
+```python
+class SSDWithMobileNetV3(nn.Module):
+    """使用MobileNetV3的SSD"""
+    
+    def __init__(self, num_classes=21):
+        super().__init__()
+        
+        # MobileNetV3 backbone
+        from torchvision.models import mobilenet_v3_large
+        backbone = mobilenet_v3_large(pretrained=True)
+        
+        # 修改最后几层
+        self.backbone = nn.Sequential(
+            backbone.features[:8],
+            backbone.features[8:],
+            nn.Conv2d(160, 512, 1)
+        )
+        
+        # 检测头
+        self.detection_heads = nn.ModuleList([
+            self._make_detection_head(512, num_classes),
+            self._make_detection_head(256, num_classes),
+            self._make_detection_head(128, num_classes)
+        ])
+    
+    def _make_detection_head(self, in_channels, num_classes):
+        return nn.Sequential(
+            nn.Conv2d(in_channels, 256, 3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(256, num_classes, 1)
+        )
+```
+
+### A2. SSD的Anchor设计优化
+
+```python
+class OptimizedAnchorGenerator:
+    """优化的Anchor生成器"""
+    
+    def __init__(self, image_size=300, anchor_configs=None):
+        self.image_size = image_size
+        
+        if anchor_configs is None:
+            anchor_configs = [
+                {'layer': 38, 'aspect': [1, 2, 3, 1/2, 1/3], 'scale': 0.2},
+                {'layer': 19, 'aspect': [1, 2, 3, 1/2, 1/3], 'scale': 0.37},
+                {'layer': 10, 'aspect': [1, 2, 3, 1/2, 1/3], 'scale': 0.54},
+                {'layer': 5, 'aspect': [1, 2, 3, 1/2], 'scale': 0.71},
+                {'layer': 3, 'aspect': [1, 2, 3, 1/2], 'scale': 0.88},
+                {'layer': 1, 'aspect': [1, 2], 'scale': 1.05}
+            ]
+        
+        self.configs = anchor_configs
+    
+    def generate_anchors(self):
+        anchors = []
+        
+        for config in self.configs:
+            layer_size = config['layer']
+            strides = self.image_size // layer_size
+            
+            for y in range(layer_size):
+                for x in range(layer_size):
+                    cx = (x + 0.5) * strides / layer_size
+                    cy = (y + 0.5) * strides / layer_size
+                    
+                    for aspect in config['aspect']:
+                        scale = config['scale']
+                        
+                        # 计算宽高
+                        h = scale * self.image_size / np.sqrt(aspect)
+                        w = scale * self.image_size * np.sqrt(aspect)
+                        
+                        anchors.append([cx, cy, w, h])
+        
+        return np.array(anchors)
+```
+
+### A3. SSD训练技巧
+
+```python
+class SSDTrainer:
+    """SSD训练器"""
+    
+    def __init__(self, model, config):
+        self.model = model
+        self.config = config
+    
+    def match_anchors(self, gt_boxes, gt_labels, anchors, threshold=0.5):
+        """匹配Anchor到GT"""
+        # 计算IoU
+        ious = self.box_iou(gt_boxes, anchors)
+        
+        best_matched = ious.argmax(dim=0)
+        best_ious = ious.max(dim=0)
+        
+        # 正样本：IoU > 阈值
+        positive = best_ious > threshold
+        positive_anchor_idx = positive.nonzero()[0]
+        
+        # 每个GT至少一个最佳匹配
+        argmax_ious_per_gt = ious.argmax(dim=1)
+        positive[argmax_ious_per_gt] = True
+        
+        return positive, best_matched
+    
+    def hard_negative_mining(self, confidences, labels, neg_ratio=3):
+        """难例挖掘"""
+        pos_mask = labels > 0
+        neg_conf = confidences[pos_mask]
+        
+        # 选取损失最大的负样本
+        neg_conf_sorted = neg_conf.sort(descending=True)[0]
+        n_neg = len(neg_conf_sorted) // neg_ratio
+        
+        return neg_conf_sorted > neg_conf_sorted[n_neg]
+```
+
+### A4. SSD可视化
+
+```python
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+
+def visualize_ssd_anchors():
+    """可视化SSD的Anchor"""
+    fig, ax = plt.subplots(figsize=(10, 10))
+    
+    # 图像大小
+    img_size = 300
+    
+    # 生成不同层的anchor
+    layers = [38, 19, 10, 5, 3, 1]
+    color_map = plt.cm.viridis
+    
+    for i, layer in enumerate(layers):
+        num_anchors = layer * layer * len([1, 2, 3, 0.5])
+        
+        # 可视化部分anchor
+        step = max(1, layer // 4)
+        for y in range(0, layer, step):
+            for x in range(0, layer, step):
+                cx = (x + 0.5) * img_size / layer
+                cy = (y + 0.5) * img_size / layer
+                
+                rect = patches.Rectangle(
+                    (cx - 10, cy - 10), 20, 20,
+                    linewidth=1, edgecolor=color_map(i/len(layers)), facecolor='none', alpha=0.5
+                )
+                ax.add_patch(rect)
+    
+    ax.set_xlim(0, img_size)
+    ax.set_ylim(0, img_size)
+    ax.set_aspect('equal')
+    ax.set_title('SSD Multi-Scale Anchors')
+    
+    plt.tight_layout()
+    plt.savefig('ssd_anchors.png', dpi=150)
+    plt.show()
+
+
+def plot_ssd_performance():
+    """SSD性能比较"""
+    models = ['SSD300', 'SSD512', 'YOLOv3', 'Faster-RCNN', 'RetinaNet']
+    map_scores = [76.9, 80.8, 79.6, 78.5, 79.8]
+    fps = [76.2, 16.3, 42, 8, 45]
+    
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    
+    axes[0].bar(models, map_scores, color='steelblue')
+    axes[0].set_ylabel('mAP (%)')
+    axes[0].set_title('Detection Accuracy')
+    axes[0].set_ylim(70, 85)
+    axes[0].tick_params(axis='x', rotation=45)
+    
+    axes[1].bar(models, fps, color='coral')
+    axes[1].set_ylabel('FPS')
+    axes[1].set_title('Detection Speed')
+    axes[1].set_yscale('log')
+    axes[1].tick_params(axis='x', rotation=45)
+    
+    plt.tight_layout()
+    plt.savefig('ssd_performance.png', dpi=150)
+    plt.show()
+
+
+if __name__ == '__main__':
+    visualize_ssd_anchors()
+    plot_ssd_performance()
+```

@@ -1,648 +1,509 @@
-# Q-Learning 学习文档
+# Q-learning 学习文档
 
 ## 1. 算法基础认知
 
-### 1.1 一句话定义
-Q-Learning是一种off-policy的时序差分（TD）控制算法，通过迭代更新动作-状态对的价值估计（Q值）来学习最优策略，是强化学习最基础的核心算法之一。
+Q-learning是强化学习中**最经典的算法**之一，由Watkins于1989年提出，是无模型（model-free）离策略（off-policy）学习的代表。Q-learning的核心思想是学习一个动作价值函数Q(s,a)，表示在状态s下采取动作a能够获得的累积奖励期望。通过迭代更新Q表，Q-learning能够找到最优的策略，无需环境模型。
 
-### 1.2 直觉类比
-想象你在玩一个简单的迷宫游戏：
-- **Q表**：你手里有一张地图，记录着每个格子每个方向能得多少分
-- **更新**：每次走到新格子，你就更新刚才那个决定（向左还是向右）的分数
-- **贪心**：你总是选分数最高的方向走
-- **ε-greedy**：大部分时候按地图走，但偶尔随机尝试新方向（探索）
+Q-learning的无模型特性使其特别适合于状态和动作空间较小、离散的问题。在这些问题中，Q表可以显式存储，算法简单高效。Q-learning是后续众多强化学习算法（如Deep Q-Network、DQN等）的基础，理解Q-learning对于学习强化学习至关重要。
 
-### 1.3 历史背景
-Q-Learning由Chris Watkins在1989年提出，是强化学习历史上的里程碑算法。他是第一个收敛到最优策略的off-policy TD控制算法。1990年代与神经网络结合产生DQN，解决了高维状态空间问题。
-
-### 1.4 算法定位
-- 类型：强化学习off-policy TD控制算法
-- 输出：离散动作的最优选择
-- 模型类别：表格/函数逼近
-- 任务：离散动作空间的序贯决策
-
-### 1.5 前置知识
-- 动态规划基础
-- 矩阵运算
-- Python编程
+Q-learning的"离策略"特性意味着：它使用ε-greedy等行为策略探索环境，但学习的是最优策略的价值。这允许使用经验回放（experience replay）提高数据效率。
 
 ## 2. 核心原理
 
-### 2.1 核心思想
-Q-Learning的核心是**贝尔曼最优方程**的迭代求解。$Q(s,a)$表示"在状态s下做动作a，之后一直按最优方式，能得到的总分"。每次更新都让Q值逼近$r + \gamma \max_{a'}Q(s',a')$这个目标。
+Q-learning的核心原理是**通过时间差分（TD）更新学习最优动作价值函数**。给定四元组(s, a, r, s')，Q-learning的更新规则为：
 
-### 2.2 工作流程
-1. **初始化**：Q表全部设为0（或随机）
-2. **选择动作**：ε-greedy策略选择动作
-3. **执行动作**：获得(s, a, r, s')
-4. **更新Q值**：$Q(s,a) \leftarrow Q(s,a) + \alpha[r + \gamma \max_{a'}Q(s',a') - Q(s,a)]$
-5. **判断终止**：s'是终止状态吗？不是则重复2-4
+$$Q(s,a) \leftarrow Q(s,a) + \alpha [r + \gamma \max_{a'} Q(s',a') - Q(s,a)]$$
 
-### 2.3 关键概念
-- **TD目标**：$r + \gamma \max_{a'}Q(s',a')$是Q值应该趋向的目标
-- **TD误差**：$\delta = r + \gamma \max_{a'}Q(s',a') - Q(s,a)$是更新量
-- **ε-greedy**：$\epsilon$概率随机，$1-\epsilon$概率贪心
-- **衰减ε**：随着学习深入，逐渐减少探索
+其中α是学习率，γ是折扣因子。TD目标 = r + γ × max Q(s', a')是当前估计的最优价值，TD误差 = TD目标 - 当前Q值。
 
-### 2.4 几何解释
-Q(s,a)可以理解为在状态s选择动作a的"信任度分数"。贝尔曼方程把信任度递归定义为"这一步的即时奖励 + 后续最优选择的信任度"。
+Q-learning是离策略算法：使用当前Q值选择动作（行为策略），但更新时使用最优动作的值（目标策略）。这使得探索和利用可以同时进行。
 
 ## 3. 数学公式与推导
 
-### 3.1 符号约定
-| 符号 | 含义 |
-|------|------|
-| $Q(s,a)$ | 状态-动作对的价值 |
-| $\alpha$ | 学习率（步长） |
-| $\gamma$ | 折扣因子 |
-| $\epsilon$ | 探索率 |
-| $r$ | 即时奖励 |
-| $s'$ | 下一状态 |
+### 3.1 Q函数定义
 
-### 3.2 问题形式化
-$$\max_{\pi} \mathbb{E}\left[\sum_{t=0}^{\infty} \gamma^t r_t | \pi\right]$$
+$$Q^*(s,a) = \mathbb{E}[R_t | S_t=s, A_t=a] = \mathbb{E}\left[\sum_{k=0}^{\infty} \gamma^k r_{t+k+1} | S_t=s, A_t=a\right]$$
 
-目标是找到最优策略$\pi^*$，等价于找到最优Q函数$Q^*$满足：
-$$Q^*(s,a) = \sum_{s'} P(s'|s,a)\left[R(s,a,s') + \gamma \max_{a'} Q^*(s',a')\right]$$
+Q*(s,a)是在状态s下采取动作a，然后遵循最优策略能够获得的期望累积折扣奖励。
 
-### 3.3 目标函数
-Q-Learning的损失函数：
-$$L(\theta) = (Q_{target} - Q(s,a))^2$$
-其中$Q_{target} = r + \gamma \max_{a'} Q(s',a')$
+### 3.2 最优性方程（Bellman最优方程）
 
-### 3.4 推导过程
+$$Q^*(s,a) = \mathbb{E}[R_t | S_t=s, A_t=a] + \gamma \sum_{s'} P(s'|s,a) \max_{a'} Q^*(s',a')$$
 
-**贝尔曼方程**：
-从Q值定义出发：
-$$Q^\pi(s,a) = \mathbb{E}\left[r + \gamma Q^\pi(s', a') | s, a\right]$$
-其中$a'$服从策略$\pi$
+这是Q-learning试图满足的递归关系。右边的期望包含即时奖励和后续最优价值的折扣期望。
 
-**最优Q值**：
-$$Q^*(s,a) = \sum_{s'} P(s'|s,a)\left[R + \gamma \max_{a'} Q^*(s', a')\right]$$
+### 3.3 更新公式
 
-**迭代更新**：
-$$Q(s,a) \leftarrow Q(s,a) + \alpha\left[r + \gamma \max_{a'} Q(s',a') - Q(s,a)\right]$$
+$$Q(s,a) \leftarrow Q(s,a) + \alpha [r + \gamma \max_{a'} Q(s',a') - Q(s,a)]$$
 
-这是对贝尔曼最优方程的随机近似。
+- α：学习率，控制新信息的权重
+- γ：折扣因子，考虑未来奖励的重要性
+- TD目标：$r + \gamma \max_{a'} Q(s', a')$
+- TD误差：TD目标 - 当前Q值
 
-### 3.5 最终更新规则
-$$Q(s,a) \leftarrow Q(s,a) + \alpha \cdot \delta$$
-其中$\delta = r + \gamma \max_{a'} Q(s',a') - Q(s,a)$
+### 3.4 动作选择
 
-### 3.6 扩展公式补充
+$$\pi(s) = \arg\max_a Q(s,a)$$
 
-**Q-learning的收敛性证明**
-Q-learning的核心是求解贝尔曼最优方程的随机近似。设$Q_t(s,a)$为第$t$步的Q值估计，定义误差$delta_t = Q_t(s,a) - Q^*(s,a)$。在一定条件下（学习率衰减满足$\sum alpha_t = \infty$且$\sum alpha_t^2 < \infty$），可证明$Q_t$收敛到$Q^*$。
+最优策略是选择Q值最大的动作。行为策略常用ε-greedy：
+- 以概率1-ε选择argmax Q(s,a)
+- 以概率ε随机选择动作
 
-具体来说，对于任意$(s,a)$，更新式为：
-$$Q_{t+1}(s,a) = (1-\alpha_t)Q_t(s,a) + \alpha_t[R + \gamma \max_{a'} Q_t(s',a')]$$
+### 3.5 收敛条件
 
-这是对$Q^*(s,a) = \mathbb{E}[R + \gamma \max_{a'} Q^*(s',a')]$的随机梯度下降。
-
-**Tabular Q-learning的收敛条件**
-1. 每个状态-动作对无限次访问：$\sum_t \mathbf{1}\{s_t=s, a_t=a\} = \infty$
-2. 学习率衰减：$\sum_t \alpha_t = \infty, \sum_t \alpha_t^2 < \infty$
-3. 奖励有界：$|R(s,a,s')| < R_{max}$
-
-满足上述条件时，$Q_t \to Q^*$几乎必然。
-
-**离策略学习的数学优势**
-Q-learning是off-policy算法，学习时使用的策略（$\epsilon$-greedy）与目标最优策略不同。这种离策略性质来源于TD目标的选择：
-- 目标使用$\max_{a'} Q(s',a')$（贪心选择，相当于最优策略）
-- 行为使用$\epsilon$-greedy（探索策略）
-
-数学上，目标策略的Q值更新不依赖实际选择的动作，这是off-policy的关键特征。
-
-**Q值过估计问题**
-标准Q-learning使用$\max$操作，可能导致Q值过估计：
-$$\max_{a'} Q(s',a') \geq \max_{a'} \mathbb{E}[R + \gamma Q^*(s',a')]$$
-
-这是因为max操作在有噪声的估计上产生正向偏差。解决方案包括：
-- Double Q-learning：使用两个Q表交替选择和评估
-- Weighted Q-learning：使用加权max减少偏差
-
-**n步Q-learning**
-将TD扩展到n步：
-$$Q(s,a) \leftarrow Q(s,a) + \alpha [G_t^{(n)} - Q(s,a)]$$
-
-其中$n$步返回：
-$$G_t^{(n)} = r_t + \gamma r_{t+1} + ... + \gamma^{n-1} r_{t+n-1} + \gamma^n \max_{a'} Q(s_{t+n}, a')$$
-
-n越大越接近蒙特卡洛，n=1就是标准的Q-learning。
-
-**Expected Q-Learning**
-使用期望而非max：
-$$Q(s,a) \leftarrow Q(s,a) + \alpha [\mathbb{E}_{a' \sim \pi}[Q(s',a')] - Q(s,a)]$$
-
-减少方差但计算复杂度更高。
+Q-learning收敛的条件：
+1. 所有状态-动作对被访问无限次
+2. 学习率满足：∑α_t = ∞, ∑α_t^2 < ∞
+3. 折扣因子γ ∈ [0, 1)
 
 ## 4. 训练过程讲解
 
-### 4.1 数据预处理
-Q-Learning不需要传统预处理，但需要：
-- 状态离散化（如将连续值转为整数索引）
-- 奖励根据任务设计（稀疏或密集）
+Q-learning的训练过程非常简洁：
 
-### 4.2 参数初始化
-- Q表：全0或随机小值
-- α：0.1-0.5（初期），后期衰减
-- ε：1.0开始，衰减到0.05-0.1
-- γ：0.9-0.99
-
-### 4.3 迭代过程
-
-```python
-# Q-Learning伪代码
-Q = zeros(|S|, |A|)
-
+```
+初始化Q(s,a)为小值
 for episode in range(num_episodes):
-    s = env.reset()
-    
+    初始化状态s
     for step in range(max_steps):
-        # ε-greedy选择动作
-        if random() < epsilon:
-            a = random_action()
-        else:
-            a = argmax(Q[s])
+        # 选择动作（ε-greedy）
+        a = choose_action(s, Q, epsilon)
         
-        # 执行
-        s2, r, done = env.step(a)
+        # 执行动作，获得奖励和下一状态
+        r, s' = env.step(a)
         
-        # TD更新
-        target = r + gamma * max(Q[s2]) if not done else r
-        Q[s, a] += alpha * (target - Q[s, a])
+        # 计算TD目标
+        target = r + gamma * max(Q(s'))
         
-        s = s2
+        # 更新Q值
+        Q(s,a) = Q(s,a) + alpha * (target - Q(s,a))
         
-        if done:
+        # 更新状态
+        s = s'
+        
+        if s是终止状态:
             break
-    
-    # 衰减ε
-    epsilon = max(epsilon_min, epsilon * epsilon_decay)
 ```
 
-### 4.4 收敛条件
-- Q值变化小于阈值
-- 策略稳定
-- 评估奖励达到目标
-
-### 4.5 超参数
-| 参数 | 范围 | 说明 |
-|------|------|------|
-| α | 0.1-0.5 | 学习率 |
-| γ | 0.9-0.99 | 折扣因子 |
-| ε_start | 1.0 | 初始探索率 |
-| ε_end | 0.05-0.1 | 最终探索率 |
-| ε_decay | 0.995-0.9999 | 衰减率 |
+关键超参数：
+| 超参数 | 作用 | 典型值 |
+|--------|------|--------|
+| α | 学习率 | 0.1-0.5 |
+| γ | 折扣因子 | 0.9-0.99 |
+| ε | 探索率 | 0.1-0.5 |
+| episodes | 训练轮数 | 1000+ |
 
 ## 5. 应用场景
 
-### 5.1 典型应用
-- **Grid World**：简化迷宫
-- **Taxi Driver**：出租车调度
-- **Frozen Lake**：冰面滑行游戏
-- **简单游戏AI**：21点等
+Q-learning主要应用场景包括：**网格世界游戏**，如迷宫、格子世界等经典强化学习环境；**控制问题**，如倒立摆、悬崖行走等简单控制任务；**库存管理**，优化库存决策；**调度问题**，任务调度、资源分配。近年来，Q-learning的深度版本（DQN）被应用于Atari游戏、围棋等复杂任务。
 
-### 5.2 适用特征
-- 离散状态空间
-- 离散动作空间
-- 需要快速收敛
-
-### 5.3 不适用场景
-- 连续状态空间（需要离散化）
-- 连续动作空间
-- 图像输入（用DQN）
+经典应用示例：
+1. Grid World：最基本的强化学习环境
+2. Frozen Lake：OpenAI Gym环境
+3. Taxi-v3：出租车调度问题
 
 ## 6. 优缺点分析
 
-### 6.1 优点
-1. **简单易实现**
-2. **.off-policy**：可以从旧数据学习
-3. **收敛保证**：在表格情况有理论保证
-4. **样本效率**：off-policy效率较高
+Q-learning的优点包括：**简单实现**，核心只需要几行代码；**离策略**，可以高效利用历史数据；**理论保证**，在合适条件下收敛到最优策略；**无模型**，不需要环境动力学模型。缺点包括：**状态空间限制**，只适用于离散小状态空间；**维度灾难**，状态多时Q表爆炸；**探索不足**，ε-greedy可能探索不充分。
 
-### 6.2 缺点
-1. **维度灾难**：状态多时Q表爆炸
-2. **连续状态无力**：需要离散化
-3. **过估计**：max导致Q值高估
+| 优点 | 说明 | 适用场景 |
+|------|------|----------|
+| 简单 | 实现简洁 | 学习入门 |
+| 高效 | 离策略 | 数据受限 |
+| 收敛 | 理论保证 | 小状态空间 |
 
-### 6.3 对比
-| 方法 | 表格 | 函数逼近 | Off-policy |
-|------|------|---------|-----------|
-| Q-Learning | ✓ | ✗ | ✓ |
-| SARSA | ✓ | ✗ | ✗ |
-| DQN | ✗ | ✓ | ✓ |
+| 缺点 | 说明 | 缓解方法 |
+|------|------|----------|
+| 维度灾难 | Q表爆炸 | 使用函数逼近 |
+| 离散限制 | 不适用连续 | 离散化或DQN |
 
-## 7. 调库实现
+## 7. 调库实现（Python完整代码）
 
-### 7.1 环境
-```bash
-pip install numpy pandas matplotlib gymnasium
-```
-
-### 7.2 代码
 ```python
-"""
-Q-Learning - FrozenLake
-"""
 import numpy as np
-import matplotlib.pyplot as plt
-import gymnasium as gym
+import gym
 from collections import defaultdict
 
-# 创建环境
-env = gym.make('FrozenLake-v1', is_slippery=False)
-eval_env = gym.make('FrozenLake-v1', is_slippery=False)
-
-# 参数
-alpha = 0.1       # 学习率
-gamma = 0.99      # 折扣因子
-epsilon = 1.0    # 探索率
-epsilon_decay = 0.995
-epsilon_min = 0.05
-
-# 初始化Q表
-num_states = env.observation_space.n
-num_actions = env.action_space.n
-Q = np.zeros((num_states, num_actions))
-
-# Q-Learning函数
-def select_action(state, Q, epsilon):
-    if np.random.random() < epsilon:
-        return np.random.randint(num_actions)
-    return np.argmax(Q[state])
-
-# 训练
-episodes = 10000
-rewards = []
-
-for ep in range(episodes):
-    state, _ = env.reset()
-    total_reward = 0
-    done = False
-    
-    while not done:
-        action = select_action(state, Q, epsilon)
-        next_state, reward, terminated, truncated, _ = env.step(action)
-        done = terminated or truncated
-        
-        # TD更新
-        target = reward + gamma * np.max(Q[next_state]) if not done else reward
-        Q[state, action] += alpha * (target - Q[state, action])
-        
-        state = next_state
-        total_reward += reward
-    
-    # 衰减epsilon
-    epsilon = max(epsilon_min, epsilon * epsilon_decay)
-    rewards.append(total_reward)
-    
-    if (ep+1) % 1000 == 0:
-        avg_reward = np.mean(rewards[-1000:])
-        print(f"Episode {ep+1}: avg_reward={avg_reward:.3f}")
-
-# 评估
-state, _ = eval_env.reset()
-total_reward = 0
-done = False
-
-while not done:
-    action = np.argmax(Q[state])
-    state, reward, terminated, truncated, _ = eval_env.step(action)
-    total_reward += reward
-    done = terminated or truncated
-
-print(f"评估成功: {'是' if total_reward > 0 else '否'}")
-
-# 可视化
-plt.figure(figsize=(10,4))
-window = 100
-avg_rewards = [np.mean(rewards[max(0,i-window):i] for i in range(len(rewards))]
-plt.plot(avg_rewards)
-plt.xlabel('Episode')
-plt.ylabel('Average Reward')
-plt.title('Q-Learning Training on FrozenLake')
-plt.grid(True)
-plt.savefig('qlearning_result.png')
-plt.show()
-
-env.close()
-eval_env.close()
-```
-
-### 7.3 输出
-```
-Episode 1000: avg_reward=0.100
-Episode 2000: avg_reward=0.450
-Episode 5000: avg_reward=0.780
-Episode 10000: avg_reward=0.850
-评估成功: 是
-```
-
-## 8. 手工代码实现
-
-### 8.1 代码
-```python
-"""
-Q-Learning表格实现 - 完整版
-"""
-import numpy as np
-import matplotlib.pyplot as plt
-import gymnasium as gym
 
 class QLearningAgent:
-    def __init__(self, state_space, action_space,
-                 alpha=0.1, gamma=0.99,
-                 epsilon=1.0, epsilon_decay=0.995, epsilon_min=0.05):
-        self.alpha = alpha
-        self.gamma = gamma
+    """Q-Learning智能体"""
+    def __init__(self, n_states, n_actions, learning_rate=0.1, 
+                 discount_factor=0.99, epsilon=0.1, epsilon_decay=0.995, 
+                 epsilon_min=0.01):
+        self.n_states = n_states
+        self.n_actions = n_actions
+        self.lr = learning_rate
+        self.gamma = discount_factor
         self.epsilon = epsilon
         self.epsilon_decay = epsilon_decay
         self.epsilon_min = epsilon_min
         
         # 初始化Q表
-        if hasattr(state_space, 'n'):
-            n_states = state_space.n
-        else:
-            n_states = state_space
-        
-        if hasattr(action_space, 'n'):
-            n_actions = action_space.n
-        else:
-            n_actions = action_space
-        
         self.Q = np.zeros((n_states, n_actions))
     
-    def select_action(self, state, evaluate=False):
-        if not evaluate and np.random.random() < self.epsilon:
-            return np.random.randint(self.Q.shape[1])
+    def choose_action(self, state):
+        """ε-greedy动作选择"""
+        if np.random.random() < self.epsilon:
+            return np.random.randint(self.n_actions)
         return np.argmax(self.Q[state])
     
-    def update(self, state, action, reward, next_state, done):
-        # TD目标
+    def learn(self, state, action, reward, next_state, done):
+        """Q-learning更新"""
+        current_Q = self.Q[state, action]
+        
         if done:
             target = reward
         else:
             target = reward + self.gamma * np.max(self.Q[next_state])
         
         # TD更新
-        self.Q[state, action] += self.alpha * (target - self.Q[state, action])
+        self.Q[state, action] = current_Q + self.lr * (target - current_Q)
         
-        # 衰减ε
-        self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
+        # 探索衰减
+        if self.epsilon > self.epsilon_min:
+            self.epsilon *= self.epsilon_decay
+    
+    def train(self, env, num_episodes=10000, max_steps=100):
+        """训练智能体"""
+        rewards = []
         
-        return target - self.Q[state, action]
+        for episode in range(num_episodes):
+            state = env.reset()
+            total_reward = 0
+            
+            for step in range(max_steps):
+                action = self.choose_action(state)
+                next_state, reward, done, _ = env.step(action)
+                
+                self.learn(state, action, reward, next_state, done)
+                total_reward += reward
+                state = next_state
+                
+                if done:
+                    break
+            
+            rewards.append(total_reward)
+            
+            if episode % 100 == 0:
+                avg_reward = np.mean(rewards[-100:])
+                print(f"Episode {episode}: Avg Reward = {avg_reward:.2f}, Epsilon = {self.epsilon:.4f}")
+        
+        return rewards
     
-    def get_policy(self):
-        """获取确定性策略"""
-        return np.argmax(self.Q, axis=1)
-    
-    def get_value_function(self):
-        """获取状态值函数V(s) = max_a Q(s,a)"""
-        return np.max(self.Q, axis=1)
+    def evaluate(self, env, num_episodes=100, max_steps=100):
+        """评估智能体"""
+        total_rewards = []
+        
+        for episode in range(num_episodes):
+            state = env.reset()
+            episode_reward = 0
+            
+            for step in range(max_steps):
+                action = np.argmax(self.Q[state])
+                state, reward, done, _ = env.step(action)
+                episode_reward += reward
+                
+                if done:
+                    break
+            
+            total_rewards.append(episode_reward)
+        
+        return np.mean(total_rewards)
 
-def train_frozen_lake(episodes=5000):
+
+class LinearQlearning:
+    """线性函数逼近的Q-learning"""
+    def __init__(self, n_actions, feature_dim, learning_rate=0.01, gamma=0.99):
+        self.n_actions = n_actions
+        self.lr = learning_rate
+        self.gamma = gamma
+        self.weights = np.random.randn(feature_dim, n_actions) * 0.01
+    
+    def predict(self, features):
+        """预测Q值"""
+        return features @ self.weights
+    
+    def choose_action(self, features):
+        """动作选择"""
+        Q_values = self.predict(features)
+        return np.argmax(Q_values)
+    
+    def learn(self, features, action, reward, next_features, done):
+        """更新"""
+        current_Q = self.predict(features)[action]
+        
+        if done:
+            target = reward
+        else:
+            next_Q = self.predict(next_features)
+            target = reward + self.gamma * np.max(next_Q)
+        
+        # 梯度更新
+        error = target - current_Q
+        gradient = np.zeros_like(self.weights)
+        gradient[:, action] = features
+        self.weights += self.lr * error * gradient
+
+
+def run_frozen_lake():
+    """运行FrozenLake环境"""
     env = gym.make('FrozenLake-v1')
-    agent = QLearningAgent(env.observation_space, env.action_space)
     
-    rewards_history = []
+    print("=== Q-Learning on FrozenLake ===")
+    print(f"State space: {env.observation_space.n}")
+    print(f"Action space: {env.action_space.n}")
     
-    for ep in range(episodes):
-        state, _ = env.reset()
-        total = 0
-        done = False
-        
-        while not done:
-            action = agent.select_action(state)
-            next_state, reward, terminated, truncated, _ = env.step(action)
-            done = terminated or truncated
-            
-            agent.update(state, action, reward, next_state, done)
-            
-            state = next_state
-            total += reward
-        
-        rewards_history.append(total)
-        
-        if (ep+1) % 1000 == 0:
-            print(f"Episode {ep+1}: reward={total}")
+    agent = QLearningAgent(
+        n_states=env.observation_space.n,
+        n_actions=env.action_space.n,
+        learning_rate=0.1,
+        discount_factor=0.99,
+        epsilon=0.2
+    )
     
-    env.close()
-    return agent, rewards_history
+    rewards = agent.train(env, num_episodes=5000)
+    
+    eval_reward = agent.evaluate(env, num_episodes=1000)
+    print(f"\nEvaluation Average Reward: {eval_reward:.2f}")
 
-def test_agent(agent, env_id='FrozenLake-v1'):
-    env = gym.make(env_id)
-    state, _ = env.reset()
-    total = 0
-    done = False
-    
-    while not done:
-        action = agent.select_action(state, evaluate=True)
-        state, reward, terminated, truncated, _ = env.step(action)
-        total += reward
-        done = terminated or truncated
-    
-    env.close()
-    return total
 
-# 主函数
+def run_cliff_walking():
+    """运行Cliff Walking环境"""
+    env = gym.make('CliffWalking-v0')
+    
+    print("\n=== Q-Learning on CliffWalking ===")
+    print(f"State space: {env.observation_space.n}")
+    print(f"Action space: {env.action_space.n}")
+    
+    agent = QLearningAgent(
+        n_states=env.observation_space.n,
+        n_actions=env.action_space.n,
+        learning_rate=0.1,
+        discount_factor=0.99,
+        epsilon=0.1
+    )
+    
+    rewards = agent.train(env, num_episodes=5000)
+    
+    eval_reward = agent.evaluate(env, num_episodes=1000)
+    print(f"\nEvaluation Average Reward: {eval_reward:.2f}")
+
+
 if __name__ == '__main__':
-    agent, rewards = train_frozen_lake(5000)
-    
-    # 测试
-    success = 0
-    for _ in range(100):
-        if test_agent(agent) > 0:
-            success += 1
-    print(f"成功率: {success}%")
-    
-    # 可视化
-    plt.figure(figsize=(10,4))
-    window = 100
-    avg_rewards = [np.mean(rewards[max(0,i-window):i] for i in range(len(rewards))]
-    plt.plot(avg_rewards)
-    plt.xlabel('Episode')
-    plt.ylabel('Average Reward')
-    plt.title('Q-Learning: FrozenLake')
-    plt.grid(True)
-    plt.savefig('qlearning_manual.png')
-    plt.show()
-    
-    # 显示Q表
-    print("\nQ表:")
-    print(agent.Q[:4])  # 只显示前4个状态
+    import gym
+    run_frozen_lake()
+    run_cliff_walking()
 ```
 
-### 8.2 对比
+## 8. 手工代码实现
 
-| 指标 | 表格 | 库 |
-|------|------|-----|
-| 代码量 | 中 | 多 |
-| 可控性 | 高 | 中 |
+```python
+import numpy as np
+import matplotlib.pyplot as plt
+
+
+def simple_q_learning():
+    """简化版Q-learning"""
+    n_states = 4
+    n_actions = 2
+    Q = np.zeros((n_states, n_actions))
+    
+    alpha = 0.1
+    gamma = 0.99
+    epsilon = 0.1
+    num_episodes = 1000
+    
+    for episode in range(num_episodes):
+        s = 0
+        while s != n_states - 1:
+            if np.random.random() < epsilon:
+                a = np.random.randint(n_actions)
+            else:
+                a = np.argmax(Q[s])
+            
+            if a == 0:
+                s_new = max(0, s - 1)
+            else:
+                s_new = min(n_states - 1, s + 1)
+            
+            r = -1 if s_new == n_states - 1 else 0
+            
+            Q[s, a] += alpha * (r + gamma * np.max(Q[s_new]) - Q[s, a]
+            s = s_new
+    
+    return Q
+
+
+def grid_world_q_learning():
+    """网格世界Q-learning"""
+    grid_size = 4
+    n_states = grid_size * grid_size
+    n_actions = 4
+    
+    Q = np.zeros((n_states, n_actions))
+    
+    transitions = {
+        0: {0: 0, 1: 4, 2: 0, 3: 0},
+        1: {0: 1, 1: 5, 2: 0, 3: 1},
+        2: {0: 2, 1: 6, 2: 0, 3: 2},
+        3: {0: 3, 1: 7, 2: 0, 3: 3},
+        4: {0: 0, 1: 8, 2: 0, 3: 5},
+        15: {0: 15, 1: 15, 2: 11, 3: 14}
+    }
+    
+    alpha = 0.1
+    gamma = 0.95
+    epsilon = 0.1
+    
+    for _ in range(10000):
+        s = 0
+        
+        while s != 15:
+            if np.random.random() < epsilon:
+                a = np.random.randint(n_actions)
+            else:
+                a = np.argmax(Q[s])
+            
+            s_new = transitions.get(s, {a: s}).get(a, s)
+            
+            r = 1 if s_new == 15 else 0
+            
+            Q[s, a] += alpha * (r + gamma * np.max(Q[s_new]) - Q[s, a])
+            s = s_new
+    
+    return Q
+
+
+if __name__ == '__main__':
+    Q = simple_q_learning()
+    print("Q-table:")
+    print(Q)
+```
 
 ## 9. 可视化与结果理解
 
-### 9.1 参数可视化
 ```python
+import numpy as np
 import matplotlib.pyplot as plt
 
-eps_values = [0.01, 0.05, 0.1, 0.2]
-success_rate = [0.75, 0.85, 0.80, 0.55]
+def plot_q_learning_curves():
+    """绘制Q-learning训练曲线"""
+    episodes = np.arange(1000)
+    
+    rewards_early = np.random.randn(1000).cumsum()
+    rewards_mid = np.random.randn(900, 1).mean(axis=1).cumsum()
+    rewards_late = np.full(100, 10).cumsum()
+    
+    rewards = np.concatenate([rewards_early[:100], rewards_mid, rewards_late])
+    
+    plt.figure(figsize=(10, 6))
+    plt.plot(episodes, rewards)
+    plt.xlabel('Episode', fontsize=12)
+    plt.ylabel('Cumulative Reward', fontsize=12)
+    plt.title('Q-Learning Training Curve', fontsize=14)
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig('q_learning_curve.png', dpi=150)
+    plt.show()
 
-plt.figure(figsize=(8,4))
-plt.bar(eps_values, success_rate)
-plt.xlabel('Final Epsilon')
-plt.ylabel('Success Rate')
-plt.title('探索率对Q-Learning的影响')
-plt.grid(True)
-plt.savefig('qlearning_eps.png')
-plt.show()
+
+def plot_q_table_heatmap():
+    """绘制Q表热力图"""
+    Q = np.random.randn(16, 4) * 10
+    
+    plt.figure(figsize=(10, 6))
+    plt.imshow(Q, aspect='auto', cmap='RdYlGn')
+    plt.colorbar(label='Q Value')
+    plt.title('Q-Table Heatmap', fontsize=14)
+    plt.xlabel('Action')
+    plt.ylabel('State')
+    plt.tight_layout()
+    plt.savefig('q_table_heatmap.png', dpi=150)
+    plt.show()
+
+
+def plot_convergence():
+    """绘制收敛过程"""
+    episodes = np.arange(1, 10001)
+    errors = np.exp(-0.0005 * episodes) + 0.1 * np.random.randn(len(episodes))
+    
+    plt.figure(figsize=(10, 6))
+    plt.semilogy(episodes, errors)
+    plt.xlabel('Episode', fontsize=12)
+    plt.ylabel('TD Error', fontsize=12)
+    plt.title('Q-Learning Convergence', fontsize=14)
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig('q_convergence.png', dpi=150)
+    plt.show()
+
+
+if __name__ == '__main__':
+    plot_q_learning_curves()
+    plot_q_table_heatmap()
+    plot_convergence()
 ```
 
-### 9.2 性能可视化
-```python
-fig, ax = plt.subplots(2,2, figsize=(10,8))
-
-# 奖励曲线
-ax[0,0].plot(rewards)
-ax[0,0].set_title('Episode Rewards')
-
-# Q值热力图
-q_heatmap = ax[0,1].imshow(agent.Q[:4], cmap='hot')
-ax[0,1].set_title('Q-Table (first 4 states)')
-plt.colorbar(q_heatmap, ax=ax[0,1])
-
-# ε衰减
-epsilons = [1.0 * (0.995**i) for i in range(5000)]
-ax[1,0].plot(epsilons[:1000])
-ax[1,0].set_title('Epsilon Decay')
-
-# 值函数
-ax[1,1].plot(agent.get_value_function()[:4])
-ax[1,1].set_title('Value Function')
-
-plt.tight_layout()
-plt.savefig('qlearning_perf.png')
-plt.show()
-```
-
-### 9.3 结果解读
-- Q表值代表每个状态-动作对的长期价值
-- 策略直接从Q表提取：π(s)=argmax_a Q(s,a)
-- ε衰减控制探索-利用平衡
+结果分析：Q-learning通常在几百到几千个episode后收敛。训练曲线显示奖励逐渐增加，最终稳定在较高的值。TD误差逐渐减小到0，表示Q函数逐渐收敛到最优值。
 
 ## 10. 模型评估
 
-### 10.1 评估指标
-- 成功率（达到目标的episode比例）
-- 收敛所需episode数
-- 最终Q值
+Q-learning的评估关注：
+1. **收敛速度**：多少episode后收敛
+2. **最终性能**：收敛后的平均奖励
+3. **稳定性**：不同随机种子下的表现
+4. **样本效率**：达到性能所需的交互次数
 
-### 10.2 评估代码
-```python
-def evaluate_agent(agent, env_id, num_episodes=100):
-    env = gym.make(env_id)
-    successes = []
-    
-    for _ in range(num_episodes):
-        state, _ = env.reset()
-        done = False
-        total = 0
-        
-        while not done:
-            action = agent.select_action(state, evaluate=True)
-            state, reward, terminated, truncated, _ = env.step(action)
-            total += reward
-            done = terminated or truncated
-        
-        successes.append(total > 0)
-    
-    return np.mean(successes)
-
-success_rate = evaluate_agent(agent, 'FrozenLake-v1')
-print(f"成功率: {success_rate*100:.1f}%")
-```
-
-### 10.3 超参数调优
-```python
-# 网格搜索
-best_rate = 0
-best_params = {}
-
-for alpha in [0.01, 0.1, 0.5]:
-    for gamma in [0.9, 0.99, 0.999]:
-        agent = QLearningAgent(..., alpha=alpha, gamma=gamma)
-        train(agent)
-        rate = evaluate(agent)
-        
-        if rate > best_rate:
-            best_rate = rate
-            best_params = (alpha, gamma)
-
-print(f"最佳参数: {best_params}, 成功率: {best_rate}")
-```
+评估指标：
+1. Average Reward：平均episode奖励
+2. TD Error：TD误差
+3. Steps per Episode：每episode步数
+4. Success Rate：成功完成任务的比例
 
 ## 11. 常见问题与易错点
 
-### 11.1 数据问题
-- **状态空间太大**：表格爆炸（解决：用函数逼近或离散化）
-- **奖励设计不当**：学习困难（解决：合理设计奖励）
-
-### 11.2 模型问题
-- **过估计**："max"导致Q值偏高（解决：用Double Q-Learning）
-- **不收敛**：α太大或ε不衰减
-
-### 11.3 调参问题
-- **ε衰减太快**：陷入局部最优
-- **ε衰减太慢**：探索不足
+常见问题：**Q值不收敛**，学习率过大或过小；**探索不足**，ε过小导致局部最优；**状态表示不当**，连续状态离散化不合理。使用时的易错点：**忘记探索��减**，固定ε导致性能下降；**折扣因子不当**，γ过大或过小；**终止状态处理错误**，忘记设置done标志。
 
 ## 12. 学习总结
 
-### 12.1 核心要点
-1. Q-Learning是off-policy TD控制
-2. TD更新公式：$Q(s,a) \leftarrow Q(s,a) + \alpha(r + \gamma\max_{a'}Q(s',a') - Q(s,a))$
-3. ε-greedy平衡探索和利用
-4. 最终收敛到最优Q函数
+Q-learning是强化学习的基础算法，通过TD学习最优动作价值函数。核心简单，效果显著。学习要点：TD学习、ε-greedy探索、离策略特性。
 
-### 12.2 关键公式
-- **TD更新**：$\delta = r + \gamma\max_{a'}Q(s',a') - Q(s,a)$
-- **Q值**：$Q(s,a) \leftarrow Q(s,a) + \alpha\delta$
-- **策略**：$\pi(s) = \arg\max_a Q(s,a)$
+## 13. 练习题与思考题（含答案）
 
-### 12.3 联系
-- **前置**：蒙特卡洛方法、TD(0)
-- **后续**：SARSA（on-policy版本）、DQN、Double Q-Learning
+**练习题1**：写出Q-learning的更新公式。
 
-## 13. 练习题与思考题与思考题
+答案：Q(s,a) ← Q(s,a) + α[r + γmax Q(s',a') - Q(s,a)]
 
-### 13.1 基础练习题
-1. **问题**：为什么Q-Learning是off-policy，而SARSA是on-policy？
-2. **计算**：给定Q表，计算一步更新后的Q值
+**练习题2**：为什么Q-learning是离策略算法？
 
-### 13.2 进阶思考题
-1. **问题**：Q-Learning的"max"操作会导致什么问题？如何解决？
-2. **拓展**：在连续状态空间如何应用Q-Learning？
+答案：使用ε-greedy探索，但学习的是最优策略的价值。
 
-### 13.3 参考答案
-1. Q-Learning用max计算目标，不管实际用什么动作；SARSA用实际选择的动作计算目标
-2. Double Q-Learning用两个Q表交替选择和评估，避免过估计
+**思考题1**：Q-learning的局限性？
 
-## 14. 学习路径建议建议
+答案：1.只适用于离散小状态空间 2.维度灾难
 
-### 14.1 前置知识
-- 动态规划基础
-- MDP概念
+### 13.3 详细答案与解析
 
-### 14.2 平行算法
-- SARSA（on-policy版本）
-- TD学习
+#### 练习：计算
 
-### 14.3 进阶算法
-- **DQN**：用神经网络处理高维状态
-- **Double Q-Learning**：避免过估计
-- **Dueling DQN**：Q值分解
+**问题**：状态0，执行动作1，到达状态1，获得奖励0，再执行动作1到达状态2，奖励1，γ=0.9，α=0.1，Q(0,1)=1, Q(1,1)=2, Q(2,1)=3，更新Q(0,1)。
 
-### 14.4 推荐资源
-- Watkins (1989). "Learning from Delayed Rewards"
-- Sutton & Barto 《强化学习》第6章
-- 《深入强化学习》书籍
+**答案**：
+```
+target = r + γ * max(Q(s',:)) = 0 + 0.9 * 2 = 1.8
+Q(0,1) = 1 + 0.1 * (1.8 - 1) = 1.08
+```
+
+## 14. 学习路径建议
+
+学习Q-learning：
+1. 强化学习基础
+2. MDP和Bellman方程
+3. TD学习
+4. Q-learning实现
+5. 扩展到DQN
+
+### 14.1 扩展资源
+
+**论文**：
+1. Watkins (1989). "Learning from Delayed Rewards"
+2. "Q-learning original paper"

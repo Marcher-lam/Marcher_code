@@ -1,1133 +1,1412 @@
-# BERT 学习文档
+# Bert 学习文档
+
+> 基于Transformer编码器的双向预训练语言模型，通过掩码语言建模和下一句预测任务学习深度双向表示
+
+---
 
 ## 1. 算法基础认知
 
-### 1.1 一句话定义
+### 一句话定义
+BERT（Bidirectional Encoder Representations from Transformers）是一种基于Transformer编码器架构的预训练语言模型，通过双向上下文学习深度语言表示，在下游任务上通过微调达到优异性能。
 
-**BERT（Bidirectional Encoder Representations from Transformers）** 是一种基于双向Transformer编码器的预训练语言模型，通过掩码语言模型（MLM）和下一句预测（NSP）两个预训练任务，在大规模语料上进行无监督学习，然后用下游任务的少量标注数据进行微调，在NLP各项基准测试中取得了突破性进展。
+### 直觉类比
+想象你在阅读句子"The animal didn't cross the street because it was too tired." 你需要理解"it"指的是"animal"。BERT可以同时看到句子的左右两侧，通过双向注意力直接建立"it"和"animal"之间的联系，无论它们距离多远。这就像你同时能看到整个句子，而不是像传统RNN那样一个词一个词地读。
 
-### 1.2 直觉类比
+### 历史背景
+BERT由Google的Devlin等人于2018年提出，基于Vaswani等人2017年的Transformer架构。BERT的关键创新是：1）使用双向Transformer编码器；2）提出掩码语言建模（MLM）作为预训练任务；3）引入下一句预测（NSP）任务。BERT刷新了11个NLP任务的SOTA，引发了预训练-微调范式的革命。
 
-**生活场景类比**：
-- 就像一个学生在大量阅读中学习语言理解（MLM完形填空），同时学习判断句子顺序（NSP阅读理解）。
-- 预训练阶段相当于"广泛阅读"，微调阶段相当于"针对性练习"。
+### 算法定位
+- 类型：自监督学习 → 语言模型（可微调到各种下游任务）
+- 输出：句子或词的表示（用于分类、问答、NER等）
+- 模型类型：双向语言模型、基于Transformer编码器
 
-### 1.3 历史背景
+### 前置知识
+- Transformer架构：自注意力、位置编码、编码器结构
+- 语言模型基础：掩码语言建模、自监督学习
+- 深度学习：预训练与微调、迁移学习
+- 注意力机制：Query、Key、Value概念
+- Python基础：PyTorch、Hugging Face Transformers库
 
-**发展历程**：
-
-1. **2018 - BERT诞生**：
-   - Devlin等人发表论文
-   - 提出双向预训练+微调范式
-   - GLUE基准11项任务SOTA
-
-2. **2018-2020 - 扩展**：
-   - RoBERTa（更强预训练）
-   - ALBERT（轻量化）
-   - DistilBERT（蒸馏）
-
-3. **2020-至今 - 大模型时代**：
-   - BERT-large扩展
-   - 结合GPT的预训练
-   - 跨语言版本
-
-**核心论文**：
-- Devlin et al., "BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding", NAACL 2019
-
-### 1.4 算法定位
-
-| 属性 | 值 |
-|------|-----|
-| **任务** | 预训练+微调 |
-| **类型** | 双向Transformer编码器 |
-| **模型类别** | 深度预训练语言模型 |
-
-### 1.5 前置知识
-
-| 领域 | 内容 |
-|------|------|
-| **Transformer** | 编码器架构 |
-| **Attention** | Self-Attention |
-| **NLP** | 语言模型基础 |
+---
 
 ## 2. 核心原理
 
 ### 2.1 核心思想
+BERT的核心思想是**通过双向Transformer编码器，在大规模无标注文本上预训练，学习深度双向语言表示，然后通过微调适配到各种下游NLP任务**：
 
-**核心思想**：通过双向Transformer编码器在大规模无标注语料上进行预训练，学习通用的语言表示，然后通过微调适配下游任务。
-
-**关键洞察**：
-- 双向：能看到上下文（之前和之后）
-- 预训练+微调：先通用学习，再任务适配
-- MLM：完形填空学习上下文
+1. **双向编码器**：使用Transformer编码器，同时考虑左右上下文
+2. **掩码语言建模（MLM）**：随机遮盖15%的词，让模型预测被遮盖的词
+3. **下一句预测（NSP）**：判断两个句子是否连续，学习句子级关系
+4. **微调**：在下游任务数据上继续训练，适配特定任务
 
 ### 2.2 工作流程
 
 **预训练阶段**：
-```
-语料库 → Tokenize → 15% Masking → MLM + NSP预训练 → BERT模型
-```
+1. **输入处理**：词嵌入 + 段嵌入（区分句子A/B）+ 位置编码
+2. **MLM任务**：随机遮盖15%的词，模型预测被遮盖的词
+3. **NSP任务**：判断句子B是否是句子A的下一句
+4. **联合训练**：两个任务的损失加权求和
 
 **微调阶段**：
-```
-下游数据 → Tokenize → [CLS]输出 → 任务分类头 → Fine-tuning
-```
+1. **任务适配**：根据下游任务添加适当的输出层
+   - 分类任务：添加分类头（[CLS]标记的表示 → 分类器）
+   - 问答任务：预测答案的起始和结束位置
+   - NER任务：对每个词标记进行分类
+2. **继续训练**：在任务数据上微调所有参数（或BERT部分参数）
 
-### 2.3 关键概念
+### 2.3 关键概念解释
 
-| 概念 | 解释 |
-|------|------|
-| **MLM** | 掩码语言模型，随机mask 15% tokens |
-| **NSP** | 下一句预测，二分类判断是否是下一句 |
-| **[CLS]** | 分类特殊token |
-| **[SEP]** | 句子分隔符 |
-| **[PAD]** | padding token |
-| **Fine-tuning** | 微调整个模型适配下游任务 |
+- **掩码语言建模（MLM）**：随机遮盖15%的词，让模型根据双向上下文预测被遮盖的词。这迫使模型学习深度双向表示。
+- **下一句预测（NSP）**：判断句子B是否是句子A的真实下一句。帮助模型理解句子间关系，对QA和NLI任务有益。
+- **[CLS]标记**：每个序列开头的特殊标记，其最终隐藏状态通常用于分类任务。
+- **[SEP]标记**：分隔两个句子的特殊标记。
+- **双向注意力**：BERT使用Transformer编码器，每个词都能关注到句子中所有位置（包括左右两侧）。
+- **句子对输入**：BERT可以接受句子对（如问答中的问题和上下文），通过段嵌入区分。
 
-### 2.4 结构说明
+### 2.4 几何/直观解释
 
-- **Base**：12层，768维，12头，1.1亿参数
-- **Large**：24层，1024维，16头，3.4亿参数
+**从表示学习角度看**：BERT的每一层都在学习不同层次的语言表示：
+- **低层**：学习词性、句法结构
+- **中层**：学习语义关系、句子结构
+- **高层**：学习任务相关的抽象表示
 
-## 3. 数学公式
+**从注意力角度看**：BERT的双向注意力允许每个词直接"看到"所有其他词。例如对于"The animal didn't cross the street because it was too tired."，当处理"it"时，注意力可以直接聚焦于"animal"，无论它们距离多远。
+
+**MLM任务**：就像填空练习，"今天天气真[MASK]，适合去公园。"模型需要根据上下文预测[MASK]应该是"好"或"晴朗"等。
+
+---
+
+## 3. 数学公式与推导
 
 ### 3.1 符号约定
 
-| 符号 | 含义 |
-|------|------|
-| $x_i$ | 输入token的上下文表示 |
-| $h_i^k$ | 第k层BERT的隐藏状态 |
-| $M$ | Mask位置集合 |
-| $\theta$ | 模型参数 |
-| $L$ | Transformer层数 |
-| $H$ | 隐藏维度 |
-| $A$ | 注意力头数 |
-| $B$ | batch size |
-| $V$ | 词汇表大小 |
-| $\mu, \sigma$ | 分布的均值和标准差 |
+| 符号 | 含义 | 维度 |
+|------|------|----------|
+| $n$ | 序列长度（包括[CLS]和[SEP]） | 标量 |
+| $d_{model}$ | 模型维度（嵌入维度） | 标量 |
+| $L$ | Transformer编码器层数 | 标量 |
+| $H$ | 注意力头数 | 标量 |
+| $x$ | 输入序列（词ID） | $n \times 1$ |
+| $E$ | 词嵌入矩阵 | $V \times d_{model}$ |
+| $T$ | 段嵌入（句子A/B） | $2 \times d_{model}$ |
+| $P$ | 位置编码 | $n \times d_{model}$ |
+| $h_{[CLS]}$ | [CLS]标记的隐藏状态 | $d_{model} \times 1$ |
 
 ### 3.2 问题形式化
 
-**预训练任务形式化**：
+**预训练目标**：BERT在大规模文本语料上预训练，通过两个自监督任务：
 
-BERT的预训练包含两个任务：
-
-1. **掩码语言模型（MLM）**：
-   - 随机遮蔽15%的token
-   - 目标是预测被遮蔽的token
+1. **掩码语言建模（MLM）**：
+   给定被随机遮盖15%词的序列 $\tilde{x}$，预测被遮盖的原始词：
+   $$\max_\theta \log P(x_{masked} | \tilde{x}; \theta)$$
 
 2. **下一句预测（NSP）**：
-   - 判断句子A和句子B是否为连续的句子对
-   - 二分类任务：是/否
+   给定句子对 $(A, B)$，判断B是否是A的下一句：
+   $$\max_\theta \log P(\text{IsNext}(A,B) | A, B; \theta)$$
+
+**联合目标**：
+$$\mathcal{L}(\theta) = \mathcal{L}_{MLM}(\theta) + \mathcal{L}_{NSP}(\theta)$$
 
 ### 3.3 目标函数/损失函数
 
-**MLM损失**：
-对于被遮蔽的位置集合$M$，BERT最大化：
+**1. MLM损失（掩码语言建模）**：
 
-$$\mathcal{L}_{MLM} = -\sum_{i \in M} \log P_\theta(x_i | x_{\setminus i})$$
+对于被遮盖的位置 $i \in \mathcal{M}$（占15%），计算交叉熵损失：
 
-更具体地：
-$$\log P_\theta(x_i | x_{\setminus i}) = \text{softmax}(W_I \cdot h_i) \cdot x_i$$
+$$\mathcal{L}_{MLM}(\theta) = -\sum_{i \in \mathcal{M}} \log \text{softmax}(W h_i + b)_{x_i}$$
 
-其中$W_I \in \mathbb{R}^{V \times H}$是输入嵌入矩阵。
+其中：
+- $h_i$ 是位置 $i$ 的最终隐藏状态（来自Transformer编码器）
+- $W$ 是输出权重矩阵（通常与词嵌入矩阵共享权重）
+- $x_i$ 是被遮盖位置 $i$ 的真实词ID
 
-**掩码策略详解**：
-- 80%的token替换为[MASK]
-- 10%的token替换为随机token
-- 10%的token保持不变
+**2. NSP损失（下一句预测）**：
 
-数学表达对应该概率：
-$$P_{masked} = 0.8 \cdot \delta(x_{[MASK]}) + 0.1 \cdot P_{random} + 0.1 \cdot P_{original}$$
+使用[CLS]标记的最终隐藏状态 $h_{[CLS]}$ 进行二分类：
 
-**NSP损失**：
-对于句子对$(A, B)$，判断$B$是否为$A$的下一句：
+$$\mathcal{L}_{NSP}(\theta) = -\log P(\text{IsNext} | h_{[CLS]}; \theta) - \log P(\text{NotNext} | h_{[CLS]}; \theta)$$
 
-$$\mathcal{L}_{NSP} = -\sum \log P_\theta(label|x_A, x_B)$$
+实现为二分类的交叉熵损失：
+$$\mathcal{L}_{NSP}(\theta) = -[y \log \sigma(W_{NSP} h_{[CLS]}) + (1-y) \log(1-\sigma(W_{NSP} h_{[CLS]}))]$$
 
-其中$label \in \{0, 1\}$，0表示不是下一句，1表示是下一句。
-
-**总预训练损失**：
-$$\mathcal{L}_{total} = \mathcal{L}_{MLM} + \mathcal{L}_{NSP}$$
+其中 $y \in \{0, 1\}$ 是真实标签（1表示B是A的下一句）。
 
 ### 3.4 推导过程
 
-**步骤1：输入表示**
+**Step 1：输入表示**
 
-BERT的输入是token embedding、segment embedding和position embedding的和：
+对于输入序列（可能是句子对 $(A, B)$）：
 
-$$x^{(0)} = E_{token} + E_{segment} + E_{position}$$
+$$x = [\text{[CLS]}, w_1^A, w_2^A, ..., \text{[SEP]}, w_1^B, w_2^B, ..., \text{[SEP]}]$$
 
-- $E_{token} \in \mathbb{R}^{V \times H}$：token嵌入
-- $E_{segment} \in \mathbb{R}^{2 \times H}$：句子对嵌入（A=0, B=1）
-- $E_{position} \in \mathbb{R}^{512 \times H}$：可学习的位置编码
+输入表示是三种嵌入的和：
 
-**步骤2：Transformer编码器**
-
-第$l$层的计算（$l=1, ..., L$）：
-
-1. **Multi-Head Self-Attention**：
-$$h^{(l-1)'} = \text{LN}(h^{(l-1)} + \text{MHA}(h^{(l-1)}) $$
-
-2. **Feed-Forward Network**：
-$$h^{(l)} = \text{LN}(h^{(l-1)'} + \text{FFN}(h^{(l-1)')})$$
+$$\text{InputEmbedding}(x_i) = E_{x_i} + T_{seg(i)} + P_i$$
 
 其中：
-- $\text{MHA}(h) = \text{Concat}(\text{head}_1, ..., \text{head}_A)W^O$
-- $\text{head}_j = \text{Attention}(hW_j^Q, hW_j^K, hW_j^V)$
-- $\text{Attention}(Q,K,V) = \text{softmax}(\frac{QK^T}{\sqrt{d_k}})V$
+- $E_{x_i}$：词嵌入（WordPiece嵌入）
+- $T_{seg(i)}$：段嵌入（句子A所有词用 $T_A$，句子B所有词用 $T_B$）
+- $P_i$：位置编码（学习的位置嵌入，不是正弦/余弦）
 
-**步骤3：[CLS]输出**
+**Step 2：Transformer编码器**
 
-使用[CLS] token的最终表示进行分类：
-$$h_{[CLS]}^{(L)} = h^{(L)}$$
+输入表示通过 $L$ 层Transformer编码器：
 
-对于NSP任务：
-$$\hat{y}_{NSP} = \text{softmax}(W_{NSP} \cdot h_{[CLS]}^{(L)} + b_{NSP})$$
+$$h^{(0)} = \text{InputEmbedding}(x)$$
 
-**步骤4：Fine-tuning**
+$$h^{(l)} = \text{TransformerEncoderLayer}^{(l)}(h^{(l-1)}), \quad l = 1, ..., L$$
 
-给定下游任务，第$L$层的[CLS]表示用于分类：
+每层包含：
+- 多头自注意力（双向，看到整个序列）
+- 残差连接 + 层归一化
+- 前馈网络
+- 残差连接 + 层归一化
 
-$$\hat{y} = \text{softmax}(W_{task} \cdot h_{[CLS]}^{(L)} + b_{task})$$
+**Step 3：输出表示**
 
-Fine-tuning的损失函数：
-$$\mathcal{L}_{ft} = -\sum_{(x,y) \in D} \log \hat{y}_y$$
+最终层输出 $h^{(L)} = [h_{[CLS]}, h_1, h_2, ..., h_n]$ 是序列的上下文表示。
 
-### 3.5 最终解
+**Step 4：任务特定的输出层**
 
-**预训练目标**：
-$$\max_\theta \mathcal{L}_{total}(\theta)$$
+- **MLM**：对每个被遮盖位置 $i$，计算 $\text{softmax}(W h_i^{(L)})$，预测原词
+- **NSP**：使用 $h_{[CLS]}^{(L)}$ 进行二分类
 
-通过Adam优化器更新参数。
+### 3.5 最终解/算法步骤
 
-**Fine-tuning目标**：
-$$\min_\theta \mathcal{L}_{ft}(\theta)$$
+**BERT预训练算法**：
+```
+输入：大规模文本语料 D，BERT配置（L, H, d_model）
+输出：预训练模型参数 θ
 
-### 3.6 参数规模与公式关系
-
-| 配置 | $L$ | $H$ | $A$ | 参数总量 |
-|------|------|------|------|--------|
-| BERT-Base | 12 | 768 | 12 | 110M |
-| BERT-Large | 24 | 1024 | 16 | 340M |
-
-**每层���数计算**：
-- Attention参数：$4 \times H^2$（$W^Q, W^K, W^V, W^O$）
-- FFN参数：$2 \times H \times 4H$
-- LayerNorm参数：$4H$
-
-总参数：$L \times (12H^2 + 8H)$ + 嵌入参数
-
-### 3.7 与WordPiece tokenization的关系
-
-WordPiece将词汇表外的词拆分为子词：
-- "playing" → "play" + "##ing"
-- 避免OOV问题
-
-Tokenizer生成：
-$$x_{input} = [CLS] + \text{Tokenizer}(text) + [SEP]$$
-
-特殊token：
-- [CLS]：分类token，位于最前面
-- [SEP]：句子分隔符
-- [PAD]：填充token
-
-### 3.3 损失函数
-
-**MLM**：
-```python
-# mask位置的loss
-masked_lm_loss = cross_entropy(logits, labels)
+1. 初始化BERT参数 θ（Xavier初始化）
+2. 对于每次迭代，直到收敛：
+   a. 从D采样批次句子对 (A, B)
+   b. 随机采样15%的词作为遮盖位置 M
+      对 i ∈ M:
+        以80%概率替换为[MASK]
+        以10%概率替换为随机词
+        以10%概率保持不变（保留原词）
+   c. 构造输入：x = [CLS] + A + [SEP] + B + [SEP]
+   d. 计算输入表示：h⁽⁰⁾ = E_x + T_seg + P
+   e. 通过L层Transformer编码器：h⁽ᴸ⁾ = Encoder(h⁽⁰⁾)
+   f. 计算MLM损失：L_MLM = -Σᵢ∈M log softmax(Whᵢ⁽ᴸ⁾)ₓᵢ
+   g. 计算NSP损失：L_NSP = -log P(IsNext | h_{[CLS]}⁽ᴸ⁾)
+   h. 总损失：L = L_MLM + L_NSP
+   i. 反向传播更新参数：θ ← θ - α∇θL
+3. 返回预训练模型参数 θ
 ```
 
-**NSP**：
-```python
-# 二分类
-next_sentence_loss = cross_entropy(seq_relationship_logits, labels)
+**BERT微调算法**：
+```
+输入：预训练BERT参数 θ，下游任务数据 {(xᵢ, yᵢ)}ᵢ₌₁ᴺ
+输出：微调后的模型参数 θ'
+
+1. 根据任务构造输入（如分类任务：x = [CLS] + 文本 + [SEP]）
+2. 添加任务特定的输出层（如分类头：W_task）
+3. 对于每次迭代：
+   a. 前向传播：h = BERT(x; θ)，logits = W_task · h_{[CLS]}
+   b. 计算任务损失：L_task = TaskLoss(logits, y)
+   c. 反向传播更新所有参数（θ和W_task）
+4. 返回微调后的参数 θ'
 ```
 
-### 3.4 推导
+---
 
-**Tokenization**：
-```
-Input: "The cat sat on the mat"
-Output: [CLS] the cat sat on the mat [SEP]
-```
+## 4. 训练过程讲解
 
-**Masking策略（15%）**：
-- 80%：替换为[MASK]
-- 10%：替换为随机token
-- 10%：保持不变
-
-**Pre-training**：
-- batch of (token_A, token_B, is_next)
-- MLM loss + NSP loss
-
-**Fine-tuning**：
-```
-# 下游任务只需要小数据
-output = BERT(input_ids)
-clf_output = FC(output[CLS])
-loss = cross_entropy(clf_output, labels)
-```
-
-### 3.5 最终解
-
-$$\hat{y} = \text{softmax}(FC(BERT(x)_{[CLS]}))$$
-
-## 4. 训练过程
-
-### 4.1 预训练数据处理
+### 4.1 数据预处理
 
 ```python
 from transformers import BertTokenizer
 
+# ============================================
+# BERT数据预处理要点
+# ============================================
+print("=" * 60)
+print("BERT数据预处理")
+print("=" * 60)
+
+# 1. 加载BERT分词器（使用WordPiece）
 tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
 
-# MLM数据准备
-encoded = tokenizer(
-    sentence,
-    padding='max_length',
+print(f"词表大小: {tokenizer.vocab_size}")
+print(f"特殊标记: {tokenizer.special_tokens_map}")
+
+# 2. 示例句子对（用于NSP任务或QA任务）
+sentence_a = "The cat sat on the mat."
+sentence_b = "It was a sunny day."
+
+# 3. 分词 + 添加特殊标记
+# BERT的输入格式：[CLS] + A + [SEP] + B + [SEP]
+encoding = tokenizer(
+    sentence_a,
+    sentence_b,
+    add_special_tokens=True,  # 自动添加[CLS]和[SEP]
     max_length=128,
+    padding='max_length',
     truncation=True,
     return_tensors='pt'
 )
+
+print(f"\n句子A: {sentence_a}")
+print(f"句子B: {sentence_b}")
+print(f"\n输入ID形状: {encoding['input_ids'].shape}")
+print(f"注意力掩码形状: {encoding['attention_mask'].shape}")
+print(f"段ID形状: {encoding['token_type_ids'].shape}")
+
+# 4. 查看分词结果
+tokens = tokenizer.convert_ids_to_tokens(encoding['input_ids'][0])
+print(f"\n分词结果（前20个）: {tokens[:20]}")
+
+# 5. MLM任务：创建遮盖标签
+# 随机遮盖15%的词（除了特殊标记）
+input_ids = encoding['input_ids'].clone()
+labels = input_ids.clone()
+
+# 创建遮盖掩码（不遮盖特殊标记）
+special_tokens_mask = tokenizer.get_special_tokens_mask(
+    encoding['input_ids'][0], already_has_special_tokens=True
+)
+attention_mask = encoding['attention_mask'][0]
+
+# 随机选择15%的位置进行遮盖
+probability_matrix = torch.full(input_ids.shape, 0.15)
+mask = (torch.bernoulli(probability_matrix).bool() & 
+        ~torch.tensor(special_tokens_mask, dtype=torch.bool).unsqueeze(0) & 
+        (attention_mask.bool()).unsqueeze(0))
+
+# 执行遮盖
+masked_input = input_ids.clone()
+masked_input[mask] = tokenizer.mask_token_id
+labels[~mask] = -100  # 只计算被遮盖位置的损失
+
+print(f"\n原始输入: {tokenizer.decode(input_ids[0][:20])}")
+print(f"遮盖后输入: {tokenizer.decode(masked_input[0][:20])}")
+print(f"标签（前20个）: {labels[0][:20].tolist()}")
 ```
+
+**预处理要点**：
+1. **WordPiece分词**：BERT使用WordPiece子词分词，词表大小通常是30k左右
+2. **特殊标记**：`[CLS]`（分类标记）、`[SEP]`（分隔标记）、`[MASK]`（MLM任务）、`[PAD]`（填充）
+3. **段ID（token_type_ids）**：区分句子A（0）和句子B（1）
+4. **注意力掩码（attention_mask）**：标记哪些是真实词（1），哪些是填充（0）
+5. **MLM的80-10-10规则**：80%替换为`[MASK]`，10%替换为随机词，10%保持不变
 
 ### 4.2 参数初始化
 
 ```python
-# BERT参数已经在大规模数据上预训练
-# Fine-tune时可以直接加载预训练权重
+from transformers import BertConfig, BertForMaskedLM
+
+# ============================================
+# BERT模型初始化
+# ============================================
+print("\n" + "=" * 60)
+print("BERT模型初始化")
+print("=" * 60)
+
+# 1. BERT配置（BERT-Base为例）
+config = BertConfig(
+    vocab_size=30522,       # 词表大小
+    hidden_size=768,         # 模型维度（d_model）
+    num_hidden_layers=12,    # Transformer层数
+    num_attention_heads=12,  # 注意力头数
+    intermediate_size=3072,   # 前馈网络中间层维度（4*hidden_size）
+    max_position_embeddings=512,  # 最大序列长度
+    type_vocab_size=2,       # 段嵌入的种类数（句子A/B）
+    hidden_dropout_prob=0.1,
+    attention_probs_dropout_prob=0.1,
+)
+
+# 2. 初始化BERT模型（用于MLM任务）
+model = BertForMaskedLM(config)
+
+# 3. 查看模型结构
+print(f"模型配置:")
+print(f"  词表大小: {config.vocab_size}")
+print(f"  模型维度 (hidden_size): {config.hidden_size}")
+print(f"  Transformer层数: {config.num_hidden_layers}")
+print(f"  注意力头数: {config.num_attention_heads}")
+print(f"  最大序列长度: {config.max_position_embeddings}")
+
+# 4. 计算参数量
+total_params = sum(p.numel() for p in model.parameters())
+trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+print(f"\n总参数量: {total_params:,}")
+print(f"可训练参数量: {trainable_params:,}")
+
+# 5. BERT使用学习的位置嵌入（不是正弦/余弦）
+# 查看位置嵌入
+print(f"\n位置嵌入形状: {model.bert.embeddings.position_embeddings.weight.shape}")
+print(f"词嵌入形状: {model.bert.embeddings.word_embeddings.weight.shape}")
+print(f"段嵌入形状: {model.bert.embeddings.token_type_embeddings.weight.shape}")
 ```
 
-### 4.3 预训练流程
+**初始化建议**：
+1. **权重初始化**：使用Xavier初始化或正态分布 $N(0, 0.02^2)$
+2. **位置嵌入**：BERT使用可学习的位置嵌入（不是正弦/余弦）
+3. **激活函数**：BERT使用GELU激活（不像GPT-2）
+4. **预训练模型**：通常直接使用预训练权重（`from_pretrained('bert-base-uncased')`），而不是从头初始化
+
+### 4.3 迭代过程（训练循环）
 
 ```python
-for epoch in range(num_epochs_train):
-    for batch in dataloader:
-        # 前向
-        outputs = model(input_ids, attention_mask, token_type_ids, masked_lm_positions)
-        mlm_loss = outputs.masked_lm_loss
-        nsp_loss = outputs.next_sentence_loss
-        loss = mlm_loss + nsp_loss
-        
-        # 反向更新
-        loss.backward()
-        optimizer.step()
+import torch
+from torch.utils.data import Dataset, DataLoader
+import torch.nn as nn
+from transformers import AdamW
+
+# ============================================
+# BERT预训练循环（简化版）
+# ============================================
+print("\n" + "=" * 60)
+print("BERT预训练循环（示例）")
+print("=" * 60)
+
+# 假设我们有数据加载器
+# class MLMDataset(Dataset):
+#     def __init__(self, texts, tokenizer, max_length=128):
+#         self.texts = texts
+#         self.tokenizer = tokenizer
+#         self.max_length = max_length
+#     
+#     def __len__(self):
+#         return len(self.texts)
+#     
+#     def __getitem__(self, idx):
+#         # 创建MLM任务的数据
+#         text = self.texts[idx]
+#         encoding = self.tokenizer(
+#             text,
+#             max_length=self.max_length,
+#             padding='max_length',
+#             truncation=True,
+#             return_tensors='pt'
+#         )
+#         # 创建遮盖（简化版）
+#         input_ids = encoding['input_ids'][0]
+#         labels = input_ids.clone()
+#         # 随机选择15%位置遮盖（简化）
+#         mask = torch.bernoulli(torch.full(input_ids.shape, 0.15)).bool()
+#         input_ids[mask] = self.tokenizer.mask_token_id
+#         labels[~mask] = -100  # 忽略非遮盖位置
+#         
+#         return {
+#             'input_ids': input_ids,
+#             'attention_mask': encoding['attention_mask'][0],
+#             'token_type_ids': encoding['token_type_ids'][0],
+#             'labels': labels
+#         }
+
+# 初始化模型
+model = BertForMaskedLM.from_pretrained('bert-base-uncased')
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+model.to(device)
+
+# 优化器（使用AdamW，带权重衰减）
+optimizer = AdamW(model.parameters(), lr=5e-5, weight_decay=0.01)
+
+# 训练参数
+num_epochs = 3
+
+print(f"训练设备: {device}")
+print(f"模型参数量: {sum(p.numel() for p in model.parameters()):,}")
+
+# 模拟一个训练batch
+batch_size = 4
+seq_len = 128
+
+# 模拟输入（实际应从数据加载器获取）
+input_ids = torch.randint(0, 30522, (batch_size, seq_len)).to(device)
+attention_mask = torch.ones(batch_size, seq_len).to(device)
+token_type_ids = torch.zeros(batch_size, seq_len).to(device)  # 只有一个句子
+labels = input_ids.clone()
+# 创建遮盖标签（简化）
+mask = torch.bernoulli(torch.full((batch_size, seq_len), 0.15)).bool()
+labels[~mask] = -100  # 忽略非遮盖位置
+
+# 训练模式
+model.train()
+
+for epoch in range(num_epochs):
+    # 清零梯度
+    optimizer.zero_grad()
+    
+    # 前向传播
+    outputs = model(
+        input_ids=input_ids,
+        attention_mask=attention_mask,
+        token_type_ids=token_type_ids,
+        labels=labels
+    )
+    
+    loss = outputs.loss
+    
+    # 反向传播
+    loss.backward()
+    
+    # 梯度裁剪
+    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+    
+    # 更新参数
+    optimizer.step()
+    
+    print(f"Epoch {epoch+1}/{num_epochs}, Loss: {loss.item():.4f}")
+
+print("\n预训练完成（示例batch）")
 ```
 
-### 4.4 Fine-tune流程
+**训练要点**：
+1. **学习率**：预训练通常使用很小的学习率（如5e-5），配合Warmup调度
+2. **批次大小**：BERT预训练使用大批次（如256或更大），可能需要梯度累积
+3. **梯度裁剪**：防止梯度爆炸，通常裁剪到范数1.0
+4. **权重衰减**：BERT使用AdamW优化器，带有L2正则化（weight_decay=0.01）
+5. **Warmup**：学习率预热（如前10%步线性增加到峰值）
+
+### 4.4 收敛条件
+
+BERT预训练通常在固定步数后停止（如1M步、3M步），但可以监控：
 
 ```python
-# Fine-tune (通常3-4 epochs)
-for epoch in range(num_epochs_finetune):
-    for batch in downstream_data:
-        outputs = model(input_ids, attention_mask, segment_ids)
-        loss = F.cross_entropy(outputs[CLS], labels)
-        
-        loss.backward()
-        optimizer.step()
+def check_bert_convergence(losses, perplexities, window=1000):
+    """检查BERT是否收敛"""
+    if len(losses) < window:
+        return False
+    
+    # 检查损失是否稳定
+    recent_losses = losses[-window:]
+    loss_std = np.std(recent_losses)
+    
+    # 检查困惑度（Perplexity）是否不再下降
+    recent_ppl = perplexities[-window:]
+    ppl_diff = recent_ppl[-1] - np.mean(recent_ppl[:-1])
+    
+    if loss_std < 0.01 and abs(ppl_diff) < 1.0:
+        print(f"可能收敛: 损失标准差={loss_std:.4f}, 困惑度变化={ppl_diff:.2f}")
+        return True
+    return False
 ```
 
-### 4.5 超参数
+**收敛相关要点**：
+1. **困惑度（Perplexity）**：BERT的MLM任务主要评估指标，$PPL = e^{loss}$
+2. **训练/验证损失曲线**：应下降并趋于平稳
+3. **NSP准确率**：二元分类准确率，监控是否过拟合
+4. **下游任务性能**：定期在下游任务上评估，确保学到了有用的表示
 
-| 参数 | Base | Large | Fine-tune建议 |
-|------|------|-------|-------------|
-| **L** | 12 | 24 | 3-4 epochs |
-| **D** | 768 | 1024 | lr: 2e-5 ~ 5e-5 |
-| **H** | 12 | 16 | batch: 16, 32 |
-| **Params** | 110M | 340M | dropout: 0.1 |
+### 4.5 超参数及推荐范围
+
+| 超参数 | 作用 | 推荐范围 | 默认值（BERT-Base） |
+|--------|------|----------|----------|
+| `hidden_size` | 模型维度（d_model） | 768, 1024, 1536 | 768 |
+| `num_hidden_layers` | Transformer层数 | 12, 24, 36 | 12 |
+| `num_attention_heads` | 注意力头数 | 12, 16, 32 | 12 |
+| `intermediate_size` | FFN中间层维度 | 4*hidden_size | 3072 |
+| `max_position_embeddings` | 最大序列长度 | 512, 1024, 2048 | 512 |
+| `learning_rate` | 学习率 | 5e-5 ~ 3e-4 | 5e-5 |
+| `batch_size` | 批次大小 | 16, 32, 64 | 取决于GPU内存 |
+| `warmup_steps` | 学习率预热步数 | 10k, 30k, 50k | 总步数的10% |
+| `weight_decay` | L2正则化强度 | 0.01 ~ 0.1 | 0.01 |
+| `dropout` | Dropout概率 | 0.1 ~ 0.2 | 0.1 |
+
+**选择建议**：
+1. **模型规模**：BERT-Base（110M参数）适合大多数任务；BERT-Large（340M参数）需要更多资源
+2. **序列长度**：根据任务需求设置，BERT最多512个token（位置嵌入限制）
+3. **学习率**：BERT对学习率敏感，通常使用5e-5（微调）或1e-4（预训练）
+4. **批次大小**：受GPU内存限制，大批次有助于稳定训练
+
+---
 
 ## 5. 应用场景
 
 ### 5.1 典型应用
 
-| 应用 | 方法 | 指标 |
-|------|------|------|
-| **文本分类** | [CLS] → FC | Accuracy |
-| **命名实体识别** | 每个token分类 | F1 |
-| **问答** | Start/End位置 | EM/F1 |
-| **自然语言推断** | [CLS] → 3类 | Accuracy |
+**应用1：文本分类**
+- 场景：情感分析（正面/负面）、主题分类、垃圾邮件检测
+- 为什么适合：BERT的[CLS]标记表示整个句子的语义，适合分类
+- 实现：在[CLS]标记上添加分类头，微调BERT
 
-### 5.2 适用数据
+**应用2：问答系统（QA）**
+- 场景：给定问题和包含答案的段落，预测答案的起始和结束位置
+- 为什么适合：BERT可以处理句子对（问题和段落），学习它们的交互
+- 实现：添加QA头，预测答案的start_logits和end_logits
 
-- **预训练**：大规模无标注文本（Wikipedia、BookCorpus等）
-- **Fine-tune**：下游任务小量标注数据
+**应用3：命名实体识别（NER）**
+- 场景：识别文本中的实体（人名、地名、组织名等）
+- 为什么适合：BERT对每个词输出上下文表示，适合序列标注
+- 实现：对每个词（或子词）添加分类头，预测实体标签
 
-### 5.3 不适用
+### 5.2 适用数据特征
 
-- 实时性要求极高（BERT较慢）
-- 超短文本
+1. **需要双向上下文**：任务需要从左右两侧理解上下文（如问答、NER）
+2. **中等规模数据**：微调通常在1k-100k样本上效果良好
+3. **需要深度语言理解**：任务需要深层的语义表示
+4. **可用预训练模型**：BERT的预训练模型广泛可用（Hugging Face）
+5. **句子或文档级任务**：BERT可处理长达512个token的文本
+
+### 5.3 不适用场景
+
+1. **自回归生成**：BERT是编码器，不擅长自回归生成文本 → 使用GPT等解码器模型
+2. **超大规模生成**：BERT不适合大规模文本生成 → 使用Transformer解码器或编码器-解码器
+3. **实时推理（低延迟）**：BERT的前向传播需要计算所有层，延迟较高 → 使用蒸馏、量化
+4. **文本长度>512**：BERT的位置嵌入限制为512 → 使用Longformer、BigBird等长文档模型
+5. **计算资源有限**：BERT-Base需要~1GB显存进行推理 → 使用DistilBERT、MobileBERT等轻量模型
+
+---
 
 ## 6. 优缺点分析
 
 ### 6.1 优点
 
-**优点1：双向建模**
-- 看到完整的上下文
-- 理解更准确
-
-**优点2：通用性**
-- 预训练+微调
-- 一个模型适配多任务
-
-**优点3：SOTA性能**
-- GLUE各项任务SOTA
-- 超越之前的模型
-
-**优点4：小数据友好**
-- Fine-tune只需要小量数据
+| 优点 | 说明 | 成立条件 |
+|------|------|----------|
+| 双向上下文 | 同时利用左右上下文，理解更深入 | 使用Transformer编码器 |
+| 强大的迁移能力 | 预训练学到的表示可迁移到下游任务 | 有大量预训练数据 |
+| 简单的微调 | 只需添加任务特定层，继续训练即可 | 下游任务数据适中 |
+| 刷新多项SOTA | 在11个NLP任务上达到当时最佳 | 大规模预训练 |
+| 广泛的可用性 | Hugging Face等平台提供预训练模型 | 开源社区支持 |
 
 ### 6.2 缺点
 
-**缺点1：计算密集**
-- 参数量大
-- 推理慢
+| 缺点 | 说明 | 缓解方法 |
+|------|------|----------|
+| 预训练计算昂贵 | 需要大量GPU/TPU训练数天 | 使用预训练模型，不必从头训练 |
+| 最大序列长度限制 | 位置嵌入限制为512（BERT-Base） | 使用Longformer、BigBird等长文档模型 |
+| 不适合生成任务 | BERT是编码器，不擅长自回归生成 | 使用GPT、BART等生成模型 |
+| [MASK]不匹配 | 预训练使用[MASK]，微调时没有[MASK] | 使用ELECTRA等改进模型 |
+| 计算资源需求 | 推理需要计算所有层，延迟较高 | 使用蒸馏（DistilBERT）、量化、剪枝 |
 
-**缺点2：Mask相关问题**
-- [MASK] token只在训练出现
-- Pre-train和Fine-tune不完全匹配
+---
 
-**缺点3：固定长度**
-- 512 token限制
-
-### 6.3 对比GPT
-
-| 特性 | BERT | GPT |
-|------|------|-----|
-| **方向** | 双向 | 单向 |
-| **预训练** | MLM+NSP | 语言模型 |
-| **Fine-tune** | 需要新head | 需要新head |
-| **任务** | 判别为主 | 生成为主 |
-
-## 7. 调库实现
-
-### 7.1 环境准备
-
-```bash
-pip install torch transformers
-```
-
-### 7.2 完整代码示例
+## 7. 调库实现（Python + 完整代码 + 注释）
 
 ```python
-"""
-BERT 完整PyTorch实现
-包含：模型构建、预训练、Fine-tune
-"""
+from transformers import BertTokenizer, BertForSequenceClassification, BertConfig
+import torch
+import torch.nn as nn
+from torch.utils.data import Dataset, DataLoader
+import matplotlib.pyplot as plt
 
+# ============================================
+# 使用Hugging Face Transformers实现BERT微调
+# ============================================
+print("=" * 60)
+print("BERT调库实现（Hugging Face Transformers）")
+print("=" * 60)
+
+# ============================================
+# 1. 加载预训练模型和分词器
+# ============================================
+print("\n加载BERT-Base模型和分词器...")
+
+# 加载分词器
+tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+
+# 加载预训练模型（用于序列分类）
+# num_labels: 分类类别数（如2表示二分类）
+model = BertForSequenceClassification.from_pretrained(
+    'bert-base-uncased',
+    num_labels=2  # 二分类（如情感分析）
+)
+
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+model.to(device)
+
+print(f"模型加载完成，设备: {device}")
+print(f"参数量: {sum(p.numel() for p in model.parameters()):,}")
+
+# ============================================
+# 2. 准备示例数据（情感分析）
+# ============================================
+class SentimentDataset(Dataset):
+    """情感分析数据集"""
+    def __init__(self, texts, labels, tokenizer, max_length=128):
+        self.texts = texts
+        self.labels = labels
+        self.tokenizer = tokenizer
+        self.max_length = max_length
+        
+    def __len__(self):
+        return len(self.texts)
+    
+    def __getitem__(self, idx):
+        text = self.texts[idx]
+        label = self.labels[idx]
+        
+        # 分词
+        encoding = self.tokenizer(
+            text,
+            max_length=self.max_length,
+            padding='max_length',
+            truncation=True,
+            return_tensors='pt'
+        )
+        
+        return {
+            'input_ids': encoding['input_ids'].flatten(),
+            'attention_mask': encoding['attention_mask'].flatten(),
+            'labels': torch.tensor(label, dtype=torch.long)
+        }
+
+# 示例数据（正面情感=1，负面情感=0）
+texts = [
+    "This movie is fantastic! I loved it.",
+    "Terrible film, waste of time.",
+    "The book was amazing, couldn't put it down.",
+    "Boring and poorly written."
+]
+labels = [1, 0, 1, 0]
+
+# 创建数据集
+dataset = SentimentDataset(texts, labels, tokenizer)
+dataloader = DataLoader(dataset, batch_size=2, shuffle=True)
+
+print(f"\n数据集大小: {len(dataset)}")
+
+# ============================================
+# 3. 训练循环（微调）
+# ============================================
+def train_bert(model, dataloader, epochs=3):
+    """微调BERT模型"""
+    model.train()
+    
+    # 优化器（使用AdamW）
+    optimizer = torch.optim.AdamW(model.parameters(), lr=5e-5, weight_decay=0.01)
+    
+    # 学习率调度器（线性预热+衰减）
+    from transformers import get_linear_schedule_with_warmup
+    total_steps = len(dataloader) * epochs
+    scheduler = get_linear_schedule_with_warmup(
+        optimizer,
+        num_warmup_steps=int(0.1 * total_steps),  # 10%预热
+        num_training_steps=total_steps
+    )
+    
+    for epoch in range(epochs):
+        total_loss = 0.0
+        
+        for batch in dataloader:
+            optimizer.zero_grad()
+            
+            input_ids = batch['input_ids'].to(device)
+            attention_mask = batch['attention_mask'].to(device)
+            labels = batch['labels'].to(device)
+            
+            # 前向传播
+            outputs = model(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                labels=labels
+            )
+            
+            loss = outputs.loss
+            
+            # 反向传播
+            loss.backward()
+            
+            # 梯度裁剪
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            
+            # 更新参数
+            optimizer.step()
+            scheduler.step()
+            
+            total_loss += loss.item()
+        
+        avg_loss = total_loss / len(dataloader)
+        print(f"Epoch {epoch+1}/{epochs}, Loss: {avg_loss:.4f}")
+    
+    return model
+
+# 注意：这里不实际运行训练，仅展示代码
+print("\n微调代码已准备（需要实际数据运行）")
+
+# ============================================
+# 4. 推理（预测）
+# ============================================
+def predict_sentiment(model, tokenizer, text):
+    """预测文本情感"""
+    model.eval()
+    
+    # 分词
+    encoding = tokenizer(
+        text,
+        max_length=128,
+        padding='max_length',
+        truncation=True,
+        return_tensors='pt'
+    )
+    
+    input_ids = encoding['input_ids'].to(device)
+    attention_mask = encoding['attention_mask'].to(device)
+    
+    with torch.no_grad():
+        outputs = model(input_ids=input_ids, attention_mask=attention_mask)
+        logits = outputs.logits
+        probabilities = torch.softmax(logits, dim=-1)
+        prediction = torch.argmax(logits, dim=-1).item()
+    
+    return prediction, probabilities[0][prediction].item()
+
+# 测试推理（需要加载训练好的模型）
+# test_text = "This movie is great!"
+# pred, prob = predict_sentiment(model, tokenizer, test_text)
+# print(f"\n测试文本: {test_text}")
+# print(f"预测: {'正面' if pred==1 else '负面'}, 概率: {prob:.4f}")
+```
+
+---
+
+## 8. 手工代码实现（核心算法手写 + 注释）
+
+```python
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import math
 
+# ============================================
+# 手写实现BERT核心组件（简化版，用于教学）
+# ============================================
+print("=" * 60)
+print("手写实现BERT核心组件")
+print("=" * 60)
 
-class BERTEmbedding(nn.Module):
-    """BERT Embeddings"""
-    
-    def __init__(
-        self, 
-        vocab_size: int, 
-        embed_dim: int, 
-        max_position: int = 512,
-        segment_size: int = 2
-    ):
+class BertEmbeddings(nn.Module):
+    """BERT的嵌入层（词嵌入 + 段嵌入 + 位置嵌入）"""
+    def __init__(self, vocab_size, hidden_size, max_position_embeddings, type_vocab_size, dropout=0.1):
         super().__init__()
+        self.word_embeddings = nn.Embedding(vocab_size, hidden_size)
+        self.position_embeddings = nn.Embedding(max_position_embeddings, hidden_size)
+        self.token_type_embeddings = nn.Embedding(type_vocab_size, hidden_size)
         
-        self.word_embedding = nn.Embedding(vocab_size, embed_dim)
-        self.position_embedding = nn.Embedding(max_position, embed_dim)
-        self.segment_embedding = nn.Embedding(segment_size, embed_dim)
+        self.LayerNorm = nn.LayerNorm(hidden_size)
+        self.dropout = nn.Dropout(dropout)
         
-        self.norm = nn.LayerNorm(embed_dim)
-        self.dropout = nn.Dropout(0.1)
+    def forward(self, input_ids, token_type_ids=None):
+        """
+        input_ids: (batch, seq_len)
+        token_type_ids: (batch, seq_len)，区分句子A/B
+        """
+        seq_len = input_ids.size(1)
         
-        nn.init.xavier_uniform_(self.word_embedding.weight)
-    
-    def forward(
-        self, 
-        input_ids: torch.Tensor, 
-        segment_ids: torch.Tensor = None
-    ) -> torch.Tensor:
-        batch_size, seq_len = input_ids.shape
+        # 位置ID（0, 1, 2, ..., seq_len-1）
+        position_ids = torch.arange(seq_len, device=input_ids.device).unsqueeze(0).expand_as(input_ids)
         
-        # Position IDs
-        position_ids = torch.arange(seq_len, dtype=torch.long, device=input_ids.device)
-        position_ids = position_ids.unsqueeze(0).expand_as(input_ids)
+        if token_type_ids is None:
+            token_type_ids = torch.zeros_like(input_ids)
         
-        # Word embeddings
-        words = self.word_embedding(input_ids)
+        # 三种嵌入的和
+        word_emb = self.word_embeddings(input_ids)
+        pos_emb = self.position_embeddings(position_ids)
+        seg_emb = self.token_type_embeddings(token_type_ids)
         
-        # Segment embeddings
-        if segment_ids is None:
-            segment_ids = torch.zeros_like(input_ids)
-        segments = self.segment_embedding(segment_ids)
-        
-        # 合并
-        embeddings = words + position_embeddings(position_ids) + segments
-        embeddings = self.norm(embeddings)
+        embeddings = word_emb + pos_emb + seg_emb
+        embeddings = self.LayerNorm(embeddings)
         embeddings = self.dropout(embeddings)
         
         return embeddings
 
-
-class MultiHeadAttention(nn.Module):
-    """Multi-Head Self-Attention"""
-    
-    def __init__(self, embed_dim: int, num_heads: int, dropout: float = 0.1):
+class BertSelfAttention(nn.Module):
+    """BERT的自注意力机制（双向）"""
+    def __init__(self, hidden_size, num_heads, dropout=0.1):
         super().__init__()
-        assert embed_dim % num_heads == 0
+        assert hidden_size % num_heads == 0
         
-        self.embed_dim = embed_dim
+        self.hidden_size = hidden_size
         self.num_heads = num_heads
-        self.head_dim = embed_dim // num_heads
+        self.head_size = hidden_size // num_heads
         
-        self.qkv = nn.Linear(embed_dim, embed_dim * 3)
-        selfattn = nn.Linear(embed_dim, embed_dim)
+        self.query = nn.Linear(hidden_size, hidden_size)
+        self.key = nn.Linear(hidden_size, hidden_size)
+        self.value = nn.Linear(hidden_size, hidden_size)
+        
         self.dropout = nn.Dropout(dropout)
         
-        self.scale = math.sqrt(self.head_dim)
-    
-    def forward(self, x: torch.Tensor, mask: torch.Tensor = None) -> torch.Tensor:
-        batch_size, seq_len, _ = x.shape
+    def forward(self, hidden_states, attention_mask=None):
+        """
+        hidden_states: (batch, seq_len, hidden_size)
+        attention_mask: (batch, seq_len)，1表示真实词，0表示填充
+        """
+        batch_size, seq_len, _ = hidden_states.size()
         
-        # QKV
-        qkv = self.qkv(x).reshape(batch_size, seq_len, 3, self.num_heads, self.head_dim)
-        qkv = qkv.permute(2, 0, 3, 1, 4)
-        q, k, v = qkv[0], qkv[1], qkv[2]
+        # 线性投影
+        Q = self.query(hidden_states).view(batch_size, seq_len, self.num_heads, self.head_size).transpose(1, 2)
+        K = self.key(hidden_states).view(batch_size, seq_len, self.num_heads, self.head_size).transpose(1, 2)
+        V = self.value(hidden_states).view(batch_size, seq_len, self.num_heads, self.head_size).transpose(1, 2)
         
-        # Attention
-        attn = (q @ k.transpose(-2, -1)) / self.scale
+        # 缩放点积注意力
+        scores = torch.matmul(Q, K.transpose(-2, -1)) / math.sqrt(self.head_size)
         
-        if mask is not None:
-            attn = attn.masked_fill(mask.unsqueeze(1).unsqueeze(2) == 0, float('-inf'))
+        # 应用注意力掩码（将填充位置设为很大的负数）
+        if attention_mask is not None:
+            # 扩展mask到(b
+            mask = attention_mask[:, None, None, :]  # (batch, 1, 1, seq_len)
+            scores = scores.masked_fill(mask == 0, -1e9)
         
-        attn = F.softmax(attn, dim=-1)
-        attn = self.dropout(attn)
+        # Softmax
+        attn_weights = F.softmax(scores, dim=-1)
+        attn_weights = self.dropout(attn_weights)
         
         # 加权求和
-        x = (attn @ v).transpose(1, 2).reshape(batch_size, seq_len, self.embed_dim)
-        x = selfattn(x)
+        context = torch.matmul(attn_weights, V)  # (batch, num_heads, seq_len, head_size)
         
-        return x
+        # 拼接多头
+        context = context.transpose(1, 2).contiguous().view(batch_size, seq_len, self.hidden_size)
+        
+        return context
 
-
-class TransformerEncoderLayer(nn.Module):
-    """Transformer Encoder Layer"""
-    
-    def __init__(
-        self, 
-        embed_dim: int, 
-        num_heads: int, 
-        mlp_dim: int,
-        dropout: float = 0.1
-    ):
+class BertLayer(nn.Module):
+    """BERT编码器层"""
+    def __init__(self, hidden_size, num_heads, intermediate_size, dropout=0.1):
         super().__init__()
+        self.attention = BertSelfAttention(hidden_size, num_heads, dropout)
+        self.attention_output = nn.Linear(hidden_size, hidden_size)
+        self.attention_dropout = nn.Dropout(dropout)
+        self.attention_LayerNorm = nn.LayerNorm(hidden_size)
         
-        self.norm1 = nn.LayerNorm(embed_dim)
-        self.attn = MultiHeadAttention(embed_dim, num_heads, dropout)
+        self.intermediate = nn.Linear(hidden_size, intermediate_size)
+        self.output = nn.Linear(intermediate_size, hidden_size)
+        self.output_dropout = nn.Dropout(dropout)
+        self.output_LayerNorm = nn.LayerNorm(hidden_size)
         
-        self.norm2 = nn.LayerNorm(embed_dim)
-        self.mlp = nn.Sequential(
-            nn.Linear(embed_dim, mlp_dim),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(mlp_dim, embed_dim),
-            nn.Dropout(dropout)
-        )
-    
-    def forward(self, x: torch.Tensor, mask: torch.Tensor = None) -> torch.Tensor:
-        x = x + self.attn(self.norm1(x), mask)
-        x = x + self.mlp(self.norm2(x))
-        return x
+    def forward(self, hidden_states, attention_mask=None):
+        # 自注意力 + 残差连接 + 层归一化
+        attn_output = self.attention(hidden_states, attention_mask)
+        attn_output = self.attention_output(attn_output)
+        attn_output = self.attention_dropout(attn_output)
+        hidden_states = self.attention_LayerNorm(hidden_states + attn_output)
+        
+        # 前馈网络 + 残差连接 + 层归一化
+        intermediate_output = self.intermediate(hidden_states)
+        intermediate_output = F.gelu(intermediate_output)  # BERT使用GELU
+        output = self.output(intermediate_output)
+        output = self.output_dropout(output)
+        hidden_states = self.output_LayerNorm(hidden_states + output)
+        
+        return hidden_states
 
+# ============================================
+# 测试手写BERT组件
+# ============================================
+print("\n测试手写BERT组件...")
 
-class BERT(nn.Module):
-    """
-    BERT 完整模型
-    
-    参数:
-        vocab_size: 词汇表大小
-        embed_dim: embedding维度
-        num_layers: 编码器层数
-        num_heads: 注意力头数
-        mlp_dim: FFN维度
-        num_classes: 分类数 (用于下游任务)
-    """
-    
-    def __init__(
-        self,
-        vocab_size: int = 30522,
-        embed_dim: int = 768,
-        num_layers: int = 12,
-        num_heads: int = 12,
-        mlp_dim: int = 3072,
-        max_position: int = 512,
-        num_classes: int = 2
-    ):
-        super().__init__()
-        
-        self.embed_dim = embed_dim
-        
-        # Embeddings
-        self.embedding = BERTEmbedding(vocab_size, embed_dim, max_position)
-        
-        # Encoder
-        self.encoder = nn.ModuleList([
-            TransformerEncoderLayer(embed_dim, num_heads, mlp_dim)
-            for _ in range(num_layers)
-        ])
-        
-        self.norm = nn.LayerNorm(embed_dim)
-        
-        # 任务相关
-        self.cls = nn.Sequential(
-            nn.Linear(embed_dim, embed_dim),
-            nn.Tanh(),
-            nn.Dropout(0.1),
-            nn.Linear(embed_dim, num_classes)
-        )
-        
-        # MLM head
-        self.mlm = nn.Linear(embed_dim, vocab_size)
-        
-        self._init_weights()
-    
-    def _init_weights(self):
-        for p in self.parameters():
-            if p.dim() > 1:
-                nn.init.xavier_uniform_(p)
-    
-    def forward(
-        self, 
-        input_ids: torch.Tensor,
-        segment_ids: torch.Tensor = None,
-        attention_mask: torch.Tensor = None,
-        masked_lm_labels: torch.Tensor = None
-    ) -> dict:
-        """
-        前向传播
-        
-        参数:
-            input_ids: (batch, seq_len)
-            segment_ids: (batch, seq_len)
-            attention_mask: (batch, seq_len) - 1表示有效，0表示padding
-            masked_lm_labels: (batch, seq_len) - -100表示非mask
-        """
-        batch_size, seq_len = input_ids.shape
-        
-        # Embedding
-        hidden = self.embedding(input_ids, segment_ids)
-        
-        # Encoder (处理mask)
-        extended_mask = attention_mask.unsqueeze(1).unsqueeze(2)
-        extended_mask = extended_mask.to(dtype=torch.float)
-        extended_mask = (1.0 - extended_mask) * -10000.0
-        
-        for layer in self.encoder:
-            hidden = layer(hidden, extended_mask)
-        
-        hidden = self.norm(hidden)
-        
-        # 输出
-        pooled = hidden[:, 0]  # [CLS] token
-        
-        logits = self.cls(pooled)
-        
-        # MLM
-        mlm_logits = self.mlm(hidden)
-        
-        outputs = {
-            'logits': logits,
-            'mlm_logits': mlm_logits,
-            'hidden_states': hidden
-        }
-        
-        return outputs
-    
-    def predict_masked(
-        self, 
-        input_ids: torch.Tensor,
-        segment_ids: torch.Tensor = None,
-        attention_mask: torch.Tensor = None
-    ) -> torch.Tensor:
-        """预测mask位置"""
-        outputs = self.forward(input_ids, segment_ids, attention_mask)
-        mlm_logits = outputs['mlm_logits']
-        
-        # 取mask位置的预测
-        predictions = mlm_logits.argmax(dim=-1)
-        
-        return predictions
+# 初始化组件
+vocab_size = 30522
+hidden_size = 768
+num_heads = 12
+intermediate_size = 3072
+max_position_embeddings = 512
+seq_len = 10
+batch_size = 2
 
+# 创建嵌入层
+embeddings = BertEmbeddings(vocab_size, hidden_size, max_position_embeddings, 2)
+print(f"嵌入层创建完成")
 
-class BERTTrainer:
-    """BERT训练器"""
-    
-    def __init__(
-        self, 
-        model: BERT,
-        vocab_size: int,
-        learning_rate: float = 2e-5,
-        weight_decay: float = 0.01
-    ):
-        self.model = model
-        self.vocab_size = vocab_size
-        
-        self.optimizer = torch.optim.AdamW(
-            model.parameters(),
-            lr=learning_rate,
-            weight_decay=weight_decay
-        )
-        
-        self.scheduler = torch.optim.lr_scheduler.LinearLR(
-            self.optimizer,
-            start_factor=0.1,
-            end_factor=1.0,
-            total_iters=100
-        )
-    
-    def train_step(
-        self, 
-        input_ids: torch.Tensor,
-        segment_ids: torch.Tensor,
-        attention_mask: torch.Tensor,
-        labels: torch.Tensor,
-        masked_lm_labels: torch.Tensor
-    ) -> float:
-        """一步训练"""
-        self.model.train()
-        
-        outputs = self.model(
-            input_ids, segment_ids, attention_mask, masked_lm_labels
-        )
-        
-        # CLS 分类损失
-        clf_loss = F.cross_entropy(outputs['logits'], labels)
-        
-        # MLM损失
-        mlm_logits = outputs['mlm_logits']
-        mlm_loss = F.cross_entropy(
-            mlm_logits.view(-1, self.vocab_size),
-            masked_lm_labels.view(-1),
-            ignore_index=-100
-        )
-        
-        loss = clf_loss + mlm_loss
-        
-        self.optimizer.zero_grad()
-        loss.backward()
-        
-        torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
-        self.optimizer.step()
-        
-        return loss.item()
+# 创建编码器层
+bert_layer = BertLayer(hidden_size, num_heads, intermediate_size)
+print(f"编码器层创建完成")
 
+# 测试输入
+input_ids = torch.randint(0, vocab_size, (batch_size, seq_len))
+token_type_ids = torch.zeros(batch_size, seq_len, dtype=torch.long)
 
-def fine_tune分类():
-    """Fine-tune用于文本分类"""
-    print("="*60)
-    print("BERT 分类 Fine-tune 演示")
-    print("="*60)
-    
-    # 模型
-    model = BERT(
-        vocab_size=30522,
-        embed_dim=768,
-        num_layers=12,
-        num_heads=12,
-        mlp_dim=3072,
-        num_classes=2
-    )
-    
-    # 参数量
-    num_params = sum(p.numel() for p in model.parameters())
-    print(f"参数量: {num_params:,}")
-    
-    # 模拟数据
-    batch_size = 4
-    seq_len = 128
-    
-    input_ids = torch.randint(4, 30000, (batch_size, seq_len))
-    segment_ids = torch.zeros_like(input_ids)
-    attention_mask = torch.ones_like(input_ids)
-    labels = torch.randint(0, 2, (batch_size,))
-    
-    print(f"输入形状: {input_ids.shape}")
-    
-    # 前向
-    outputs = model(input_ids, segment_ids, attention_mask)
-    
-    print(f"输出logits形状: {outputs['logits'].shape}")
-    print(f"MLM logits形状: {outputs['mlm_logits'].shape}")
-    
-    # Fine-tune模拟
-    print(f"\nFine-tune模拟:")
-    
-    model.train()
-    optimizer = torch.optim.AdamW(model.parameters(), lr=2e-5)
-    
-    for step in range(3):
-        outputs = model(input_ids, segment_ids, attention_mask)
-        loss = F.cross_entropy(outputs['logits'], labels)
-        
-        print(f"  Step {step+1}: loss = {loss.item():.4f}")
-        
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+# 前向传播
+embedded = embeddings(input_ids, token_type_ids)
+print(f"嵌入输出形状: {embedded.shape}")
 
+output = bert_layer(embedded)
+print(f"编码器层输出形状: {output.shape}")
 
-def pre_training_demo():
-    """预训练演示"""
-    print("\n" + "="*60)
-    print("BERT 预训练演示")
-    print("="*60)
-    
-    VOCAB_SIZE = 30522
-    model = BERT(vocab_size=VOCAB_SIZE)
-    
-    # 模拟MLM数据
-    batch_size = 2
-    seq_len = 64
-    
-    input_ids = torch.randint(4, VOCAB_SIZE, (batch_size, seq_len))
-    attention_mask = torch.ones_like(input_ids)
-    segment_ids = torch.zeros_like(input_ids)
-    
-    # 随机生成mask标签
-    masked_lm_labels = input_ids.clone()
-    mask_positions = torch.rand(batch_size, seq_len) < 0.15
-    masked_lm_labels[~mask_positions] = -100
-    
-    print(f"Mask数量: {mask_positions.sum()}")
-    
-    # 前向
-    outputs = model(input_ids, segment_ids, attention_mask, masked_lm_labels)
-    
-    print(f"完成")
-    print(f"损失可计算")
-
-
-def compare_bert_variants():
-    """不同BERT变体对比"""
-    print("\n" + "="*60)
-    print("BERT 变体对比")
-    print("="*60)
-    
-    configs = [
-        ('Base', 12, 768, 12, 110e6),
-        ('Large', 24, 1024, 16, 340e6),
-    ]
-    
-    print(f"{'名称':<10} {'层数':<8} {'D':<8} {'头数':<8} {'参数量':<12}")
-    print("-" * 50)
-    
-    for name, layers, d, h, params in configs:
-        print(f"{name:<10} {layers:<8} {d:<8} {h:<8} {params/1e6:.1f}M")
-
-
-if __name__ == "__main__":
-    fine_tune分类()
-    pre_training_demo()
-    compare_bert_variants()
+print("BERT核心组件工作正常！")
 ```
 
-### 7.3 运行结果
+---
 
-```
-============================================================
-BERT 分类 Fine-tune 演示
-============================================================
-参数量: 109,484,298
-
-输入形状: torch.Size([4, 128])
-输出logits形状: torch.Size([4, 2])
-MLM logits形状: torch.Size([4, 128, 30522])
-
-Fine-tune模拟:
-  Step 1: loss = 0.6932
-  Step 2: loss = 0.5891
-  Step 3: loss = 0.4823
-
-============================================================
-BERT 预训练演示
-============================================================
-Mask数量: tensor(18)
-完成
-损失可计算
-
-============================================================
-BERT 变体对比
-============================================================
-名称      层数     D       头数     参数量   
---------------------------------------------------
-Base      12      768     12       110.0M
-Large     24      1024    16       340.0M
-```
-
-## 8. 手工实现
-
-### 8.1 代码
+## 9. 可视化与结果理解
 
 ```python
-"""
-BERT手工实现（完整代码已在第7节）
-"""
-
-# 参考第7节实现
-```
-
-### 8.2 对比
-
-| 指标 | Transformers库 | 手工实现 | 差异 |
-|------|---------------|-----------|------|
-| **输出** | 一致 | ✓ | 无 |
-| **速度** | 优化 | 略慢 | 10-20% |
-
-## 9. 可视化
-
-### 9.1 Attention可视化
-
-```python
-"""
-BERT可视化
-Attention热力图、MLM可视化
-"""
-
+import torch
+import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-import numpy as np
 
+# ============================================
+# BERT可视化：注意力权重
+# ============================================
+print("=" * 60)
+print("BERT可视化：注意力权重")
+print("=" * 60)
 
-def visualize_attention_patterns():
-    """可视化Attention模式"""
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+def visualize_bert_attention(model, tokenizer, text, layer_idx=-1, head_idx=0):
+    """可视化BERT的注意力权重（简化版）"""
+    model.eval()
     
-    np.random.seed(42)
-    seq_len = 30
+    # 分词
+    tokens = tokenizer.tokenize(text)
+    input_ids = tokenizer.convert_tokens_to_ids(tokens)
+    input_ids = torch.tensor([input_ids]).to(next(model.parameters()).device)
     
-    # 随机attention
-    attn = np.random.rand(seq_len, seq_len)
-    attn = attn / attn.sum(axis=1, keepdims=True)
+    # 获取注意力权重（需要修改模型或使用hook，这里仅示意）
+    # 实际中，可以使用BertModel并获取attentions参数
     
-    sns.heatmap(attn, ax=axes[0], cmap='viridis')
-    axes[0].set_title('Random Attention')
+    # 示意：创建随机注意力权重进行可视化
+    seq_len = len(tokens)
+    attn_weights = np.random.rand(seq_len, seq_len)  # 实际应从模型获取
+    attn_weights = attn_weights / attn_weights.sum(axis=1, keepdims=True)  # 归一化
     
-    # BERT-like（对角线更突出）
-    attn2 = np.eye(seq_len) * 0.3 + np.random.rand(seq_len, seq_len) * 0.05
-    attn2 = attn2 / attn2.sum(axis=1, keepdims=True)
-    
-    sns.heatmap(attn2, ax=axes[1], cmap='viridis')
-    axes[1].set_title('BERT-like Attention')
-    
+    # 绘制热力图
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(attn_weights, 
+                 xticklabels=tokens, 
+                 yticklabels=tokens,
+                 cmap='YlOrRd', 
+                 annot=True, 
+                 fmt='.2f')
+    plt.title(f'BERT Self-Attention Weights (Layer {layer_idx+1}, Head {head_idx+1})')
+    plt.xlabel('Key Position (attended to)')
+    plt.ylabel('Query Position (attending)')
+    plt.xticks(rotation=45)
+    plt.yticks(rotation=0)
     plt.tight_layout()
-    plt.savefig('bert_attention.png', dpi=150)
-    print("Attention已保存")
     plt.show()
-
-
-def visualize_mlm():
-    """MLM可视化"""
-    print("\nMLM示例:")
-    print("原句: The [MASK] sat on the mat")
-    print("预测: The cat sat on the mat")
-    print("正确!")
-
-def plot_finetune_results():
-    """Fine-tune结果"""
-    epochs = range(1, 11)
-    before_finetune = [50 + np.random.randn()*5 for _ in epochs]
-    after_finetune = [50 + 30*(1-np.exp(-0.3*e)) + np.random.randn()*3 for e in epochs]
     
-    plt.figure(figsize=(10, 5))
-    plt.plot(epochs, before_finetune, 'b--', label='Before Fine-tune', alpha=0.5)
-    plt.plot(epochs, after_finetune, 'r-', label='After Fine-tune', linewidth=2)
-    plt.xlabel('Epoch')
-    plt.ylabel('Accuracy')
-    plt.title('BERT Fine-tune效果')
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    plt.tight_layout()
-    plt.savefig('bert_finetune.png', dpi=150)
-    print("Fine-tune曲线已保存")
-    plt.show()
+    print("观察要点：")
+    print("1. BERT是双向的，每个词可以关注到所有其他词")
+    print("2. 不同头可能关注不同的关系（语法、语义等）")
+    print("3. 训练后的模型会学习到有意义的关系")
 
-
-if __name__ == "__main__":
-    visualize_attention_patterns()
-    visualize_mlm()
-    plot_finetune_results()
+# 示例（需要实际模型和分词器）
+# text = "The cat sat on the mat because it was tired."
+# visualize_bert_attention(model, tokenizer, text, layer_idx=-1, head_idx=0)
 ```
 
-### 9.2 结果
+**结果理解**：
+1. **注意力热力图**：显示每个词与其他词之间的注意力权重，颜色越深表示关注度越高
+2. **多头差异**：不同头可能学习不同的关系模式（如语法关系、共指关系等）
+3. **训练vs未训练**：未训练的模型注意力比较均匀，训练后的模型有清晰的模式
 
-```
-输出：
-- bert_attention.png
-- bert_finetune.png
-```
+---
 
 ## 10. 模型评估
 
-### 10.1 指标
+```python
+import torch
+import torch.nn as nn
+import math
 
-| 任务 | 指标 |
-|------|------|
-| **分类** | Accuracy |
-| **NER** | F1 |
-| **QA** | EM/F1 |
-| **GLUE** | 平均分 |
+# ============================================
+# BERT模型评估
+# ============================================
+print("=" * 60)
+print("BERT模型评估")
+print("=" * 60)
 
-### 10.2 GLUE基准
+def evaluate_bert_classification(model, dataloader, device):
+    """评估BERT分类模型"""
+    model.eval()
+    total_loss = 0.0
+    correct = 0
+    total = 0
+    
+    with torch.no_grad():
+        for batch in dataloader:
+            input_ids = batch['input_ids'].to(device)
+            attention_mask = batch['attention_mask'].to(device)
+            labels = batch['labels'].to(device)
+            
+            outputs = model(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                labels=labels
+            )
+            
+            loss = outputs.loss
+            logits = outputs.logits
+            
+            total_loss += loss.item() * input_ids.size(0)
+            
+            _, predicted = torch.max(logits, dim=-1)
+            correct += (predicted == labels).sum().item()
+            total += labels.size(0)
+    
+    avg_loss = total_loss / total
+    accuracy = correct / total
+    perplexity = math.exp(avg_loss)
+    
+    return avg_loss, accuracy, perplexity
 
-| 数据集 | 任务 | BERT-base |
-|--------|------|-----------|
-| **CoLA** | 可接受性 | 60.5 |
-| **SST-2** | 情感 | 93.5 |
-| **MRPC** | 等价 | 88.9 |
-| **STS-B** | 相似度 | 90.0 |
-| **QQP** | 句子对 | 71.2 |
+# 假设我们有验证集
+# val_loss, val_acc, val_ppl = evaluate_bert_classification(model, val_dataloader, device)
 
-### 10.3 调参
+# print("\n" + "="*50)
+# print("BERT模型评估报告")
+# print("="*50)
+# print(f"验证损失: {val_loss:.4f}")
+# print(f"准确率 (Accuracy): {val_acc:.4f}")
+# print(f"困惑度 (Perplexity): {val_ppl:.4f}")
+# print(f"较高的准确率表示分类性能越好")
+# print(f"较低的困惑度表示MLM任务性能越好")
 
-| 参数 | 范围 |
-|------|------|
-| **lr** | 1e-5 ~ 5e-5 |
-| **epochs** | 3-10 |
-| **batch** | 16, 32 |
+print("\nBERT特殊评估指标：")
+print("1. MLM困惑度 (Perplexity): 掩码语言建模任务的主要指标")
+print("2. NSP准确率: 下一句预测任务的准确率")
+print("3. 下游任务指标: 根据任务而定（如准确率、F1分数、BLEU等）")
+print("4. 推理速度: 每秒处理的样本数，或延迟（毫秒）")
+```
 
-## 11. 常见问题
+**BERT特殊评估点**：
+1. **MLM困惑度（Perplexity）**：语言建模任务的主要评估指标，$PPL = e^{loss}$
+2. **NSP准确率**：下一句预测任务的二元分类准确率
+3. **下游任务性能**：根据任务而定（如分类任务用准确率/F1，QA任务用Exact Match/F1）
+4. **推理速度**：BERT的推理延迟，特别是对于长序列
+5. **模型大小vs性能**：BERT-Base vs BERT-Large的权衡
 
-### 11.1 数据问题
+---
 
-| 问题 | 原因 | 解决 |
-|------|------|------|
-| **过拟合** | 数据太少 | Early stop |
-| **OOM** | 序列太长 | Truncation |
+## 11. 常见问题与易错点
 
-### 11.2 模型问题
+### 11.1 [MASK]在预训练和微调之间的不匹配
+**原因**：
+BERT预训练时使用`[MASK]`标记，但微调时（如分类任务）没有`[MASK]`，导致预训练-微调不匹配。
 
-| 问题 | 解决 |
-|------|------|
-| **训练慢** | 混合精度 |
-| **显存** | Gradient checkpoint |
+**解决方案**：
+```python
+# BERT的解决方案：
+# 在预训练中，只有80%的遮盖位置替换为[MASK]，
+# 10%替换为随机词，10%保持不变。
+# 这样模型学会在微调时处理没有[MASK]的输入。
+
+# 改进的模型：ELECTRA
+# 使用判别式预训练：用一个生成器替换[MASK]，然后判别器判断每个词是否被替换
+# 避免了[MASK]的不匹配问题
+```
+
+### 11.2 序列长度超过512个token
+**原因**：
+BERT的位置嵌入最大为512，对于长文档处理不了。
+
+**解决方案**：
+```python
+# 方法1：截断（简单但丢失信息）
+encoding = tokenizer(text, max_length=512, truncation=True)
+
+# 方法2：滑动窗口（对长文档）
+def sliding_window_tokenization(text, tokenizer, window_size=510, stride=256):
+    tokens = tokenizer.tokenize(text)
+    chunks = []
+    for i in range(0, len(tokens), stride):
+        chunk = tokens[i:i+window_size]
+        if len(chunk) < 10:  # 太短则跳过
+            break
+        chunks.append(tokenizer.convert_tokens_to_ids(chunk))
+    return chunks
+
+# 方法3：使用长文档模型
+# 如Longformer、BigBird，支持更长的序列（如4096或更长）
+from transformers import LongformerModel
+```
+
+### 11.3 微调时学习率设置不当
+**原因**：
+BERT预训练使用了较小的学习率（如1e-4），微调时如果学习率太大，可能破坏预训练学到的表示。
+
+**解决方案**：
+```python
+# 微调时使用较小的学习率
+# BERT-Base: 2e-5 ~ 5e-5
+# BERT-Large: 1e-5
+optimizer = AdamW(model.parameters(), lr=5e-5, weight_decay=0.01)
+
+# 使用学习率调度器（预热+线性衰减）
+from transformers import get_linear_schedule_with_warmup
+
+total_steps = len(dataloader) * num_epochs
+warmup_steps = int(0.1 * total_steps)  # 10%预热
+
+scheduler = get_linear_schedule_with_warmup(
+    optimizer,
+    num_warmup_steps=warmup_steps,
+    num_training_steps=total_steps
+)
+
+# 每个batch后调用 scheduler.step()
+```
+
+### 11.4 忽略填充位置的损失计算
+**原因**：
+BERT的输入通常包含填充（`[PAD]`），如果不处理，这些填充位置会影响损失计算。
+
+**解决方案**：
+```python
+# 正确做法：使用attention_mask和labels
+outputs = model(
+    input_ids=input_ids,
+    attention_mask=attention_mask,
+    labels=labels  # 对于填充位置，labels设为-100（PyTorch会忽略）
+)
+
+# 对于MLM任务，手动设置标签
+labels = input_ids.clone()
+labels[~mask] = -100  # 忽略非遮盖位置（或填充位置）
+
+# Hugging Face的模型会自动处理attention_mask
+```
+
+---
 
 ## 12. 学习总结
 
-### 12.1 核心要点
+### 核心要点回顾：
+1. **双向编码器**：BERT使用Transformer编码器，同时考虑左右上下文
+2. **MLM任务**：$\max_\theta \log P(x_{masked} | \tilde{x}; \theta)$
+3. **NSP任务**：判断句子B是否是句子A的下一句
+4. **微调**：在下游任务数据上继续训练，适配特定任务
+5. **输入表示**：词嵌入 + 段嵌入 + 位置嵌入
 
-1. **双向Transformer**
-2. **MLM + NSP预训练**
-3. **预训练+微调范式**
-4. **通用NLP模型**
+### 从BERT到其他模型：
+```
+BERT（双向编码器，MLM+NSP预训练）
+    ↓
+RoBERTa（去掉NSP，更多数据，更大批次）
+    ↓
+ALBERT（参数共享，句子顺序预测）
+    ↓
+ELECTRA（判别器预训练，更样本高效）
+    ↓
+其他：DistilBERT（蒸馏）、MobileBERT（移动端）、BioBERT（领域适应）
+```
 
-### 12.2 关键公式
-
-$$\mathcal{L} = \mathcal{L}_{MLM} + \mathcal{L}_{NSP}$$
-
-### 12.3 后续
-
-- RoBERTa
-- ALBERT
-- SpanBERT
-
-## 13. 练习题与思考题
-
-### 13.1 基础
-
-**BERT和GPT的区别？**
-- 答案：双向vs单向
-
-### 13.2 思考
-
-**MLM的15%策略？**
-- 答案：80%mask, 10%random, 10%keep
-
-
-### 13.3 详细答案与解析
-
-#### 练习1：概念理解
-
-**问题**：本算法的核心机制是什么？请简述其工作原理。
-
-**答案与解析**：
-
-**步骤1**：识别问题类型
-根据算法定义，这是一个[类型：监督/无监督/生成/强化学习]任务。
-
-**步骤2**：应用核心公式
-$$核心公式 = [具体公式]$$
-该公式的意义是[解释公式含义]。
-
-**步骤3**：验证答案
-代入具体数据验证：[计算过程]
-最终结果符合预期，说明理解正确。
-
-**答案**：算法的核心是通过[机制]实现[目标]，属于[算法类别]。
+### 实践建议：
+1. **默认策略**：加载预训练BERT → 根据任务添加输出层 → 微调
+2. **资源管理**：BERT-Base需要~1GB显存推理；微调需要更多
+3. **学习率**：微调通常使用2e-5到5e-5
+4. **序列长度**：BERT最长512；长文档使用Longformer等
+5. **报告**：给出下游任务指标（准确率、F1）、MLM困惑度（如果有）
 
 ---
 
-#### 练习2：手动计算
+## 13. 练习题与思考题（含答案）
 
-**问题**：给定数据[X=具体值, y=具体值]，手动计算[算法名]的[参数/结果]。
+### 练习题
 
-**答案与解析**：
+**习题1：基础计算**
+问题：BERT-Base配置：hidden_size=768，num_heads=12。计算：
+1. 每个头的维度是多少？
+2. 如果输入序列长度n=128，计算单个自注意力层的参数量（只考虑Q、K、V、输出投影矩阵）。
 
-**步骤1**：准备数据
-$X = \begin{bmatrix} x_{11} & x_{12} \\ x_{21} & x_{22} \end{bmatrix} = \begin{bmatrix} 1 & 2 \\ 3 & 4 \end{bmatrix}$  
-$y = \begin{bmatrix} y_1 \\ y_2 \end{bmatrix} = \begin{bmatrix} 3 \\ 7 \end{bmatrix}$
+<details>
+<summary>答案</summary>
 
-**步骤2**：应用算法步骤
-根据[算法名]的定义，计算第一步：
-$$第一步 = [具体公式代入] = [数值]$$
+1. **每个头的维度**：
+   $$\text{head\_size} = \frac{\text{hidden\_size}}{\text{num\_heads}} = \frac{768}{12} = 64$$
 
-**步骤3**：继续计算
-$$第二步 = [公式] = [结果]$$
+2. **参数量计算**：
+   - Query投影矩阵 $W_Q$: $768 \times 768 = 589,824$ 参数
+   - Key投影矩阵 $W_K$: $768 \times 768 = 589,824$ 参数
+   - Value投影矩阵 $W_V$: $768 \times 768 = 589,824$ 参数
+   - 输出投影矩阵 $W_O$: $768 \times 768 = 589,824$ 参数
+   
+   总参数量（仅这四个矩阵）：$4 \times 589,824 = 2,359,296$ 参数。
+   
+   注意：这里没有计算偏置项。BERT的某些实现可能省略偏置。
+</details>
 
-**步骤4**：得到最终答案
-$$最终结果 = [综合计算] = [具体数值]$$
+**习题2：编程实践**
+问题：使用Hugging Face Transformers加载BERT-Base模型，对句子进行编码，查看各层的输出形状。
 
-**验证**：将结果带回原式检验 $[验证过程]$，确认正确。
+<details>
+<summary>答案</summary>
+
+```python
+from transformers import BertTokenizer, BertModel
+import torch
+
+# 加载分词器和模型
+tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+model = BertModel.from_pretrained('bert-base-uncased')
+model.eval()  # 评估模式
+
+# 示例句子
+text = "The cat sat on the mat."
+
+# 分词
+encoding = tokenizer(text, return_tensors='pt')
+input_ids = encoding['input_ids']
+attention_mask = encoding['attention_mask']
+
+print(f"输入ID形状: {input_ids.shape}")
+print(f"注意力掩码形状: {attention_mask.shape}")
+
+# 前向传播（获取所有隐藏状态）
+with torch.no_grad():
+    outputs = model(
+        input_ids=input_ids,
+        attention_mask=attention_mask,
+        output_hidden_states=True  # 返回所有层的隐藏状态
+    )
+
+# 查看输出
+print(f"\n最后一层的隐藏状态形状: {outputs.last_hidden_state.shape}")
+print(f"  形状: (batch={input_ids.shape[0]}, seq_len={input_ids.shape[1]}, hidden_size=768)")
+
+print(f"\n所有隐藏状态的数量: {len(outputs.hidden_states)}")
+print(f"  包括：嵌入层输出 + 12层编码器输出 + 最后一层（=13个）")
+
+# 查看第一层和最后一层
+print(f"\n[CLS]标记的表示（第一层）: {outputs.hidden_states[0][0, 0, :5]}...")  # 前5个值
+print(f"[CLS]标记的表示（最后一层）: {outputs.last_hidden_state[0, 0, :5]}...")
+
+# 获取tokens
+tokens = tokenizer.convert_ids_to_tokens(input_ids[0])
+print(f"\nTokens（前10个）: {tokens[:10]}")
+```
+</details>
+
+**习题3：理论推导**
+问题：解释BERT的MLM任务中80-10-10规则的动机。为什么不直接将所有遮盖位置替换为`[MASK]`？
+
+<details>
+<summary>答案</summary>
+
+**80-10-10规则**：
+对于选择的15%要遮盖的位置：
+- **80%替换为`[MASK]`**：让模型学习根据上下文预测被遮盖的词
+- **10%替换为随机词**：迫使模型关注上下文，而不是只依赖某个特定词
+- **10%保持不变**：让模型学习表示真实的词（因为微调时没有`[MASK]`）
+
+**为什么不直接全部替换为`[MASK]`？**
+
+1. **预训练-微调不匹配**：
+   - 预训练时输入包含`[MASK]`标记
+   - 微调时（如分类任务）输入没有`[MASK]`
+   - 这种不匹配可能损害微调性能
+
+2. **解决方案**：
+   - 通过10%保持不变，模型学会处理没有`[MASK]`的输入
+   - 通过10%随机替换，模型不过度依赖特定词，增强鲁棒性
+
+**效果**：
+- 实验表明，80-10-10规则比全部替换为`[MASK]`有更好的下游任务性能
+- 虽然这增加了预训练的难度（因为模型有时看到的是错误输入），但提高了泛化能力
+
+**总结**：80-10-10规则是为了缓解预训练（有`[MASK]`）和微调（无`[MASK]`）之间的不匹配问题，提高模型的鲁棒性和泛化能力。
+</details>
+
+### 思考题
+
+**思考题1**：BERT和GPT有什么核心区别？各适用于什么场景？
+
+<details>
+<summary>答案</summary>
+
+| 方面 | BERT | GPT |
+|------|------|------|
+| **架构** | Transformer编码器（双向） | Transformer解码器（自回归） |
+| **注意力** | 双向自注意力（看到整个句子） | 掩码自注意力（只能看到前面） |
+| **预训练任务** | MLM（预测遮盖词）+ NSP（下一句预测） | 自回归语言建模（预测下一个词） |
+| **上下文** | 双向，同时利用左右上下文 | 单向，只能利用上文 |
+| **适用任务** | 理解任务（分类、QA、NER等） | 生成任务（文本生成、对话等） |
+| **输入/输出** | 编码器：输入文本，输出表示 | 解码器：输入上文，生成下文 |
+
+**适用场景**：
+
+**BERT适合**：
+- **文本理解**：情感分析、文本分类、自然语言推理
+- **问答系统**：给定问题和上下文，找出答案
+- **序列标注**：命名实体识别（NER）、词性标注
+- **需要双向上下文的任务**：任何需要理解整个句子的任务
+
+**GPT适合**：
+- **文本生成**：故事创作、新闻写作、代码生成
+- **对话系统**：ChatGPT类型的应用
+- **自回归任务**：任何需要逐步生成的任务
+
+**结合使用**：
+- **编码器-解码器模型**（如BART、T5）：结合BERT的双向编码和GPT的生成能力，适合序列到序列任务（翻译、摘要）
+</details>
+
+**思考题2**：为什么BERT最大序列长度是512？如何扩展到更长文本？
+
+<details>
+<summary>答案</summary>
+
+**为什么BERT最大序列长度是512？**
+
+1. **位置嵌入限制**：BERT学习的位置嵌入矩阵大小为 $512 \times 768$。位置ID超过511就没有对应的嵌入了。
+2. **计算复杂度**：自注意力的复杂度是 $O(n^2)$，其中 $n$ 是序列长度。超过512，计算量和内存消耗会急剧增加。
+3. **预训练数据**：大多数预训练句子对长度在512以内。
+
+**如何扩展到更长文本？**
+
+1. **滑动窗口（Sliding Window）**：
+   ```python
+   def sliding_window(tokens, window_size=510, stride=256):
+       chunks = []
+       for i in range(0, len(tokens), stride):
+           chunk = tokens[i:i+window_size]
+           chunks.append(chunk)
+           if len(chunk) < window_size:
+               break
+       return chunks
+   ```
+   对长文档分成多个512长度的chunk，分别处理，然后合并结果。
+
+2. **长文档Transformer模型**：
+   - **Longformer**：使用局部注意力+全局注意力，复杂度降为 $O(n)$
+   - **BigBird**：类似Longformer，使用稀疏注意力模式
+   - **LED（Longformer Encoder-Decoder）**：用于序列到序列任务
+   
+   这些模型可以处理长达4096或8192个token。
+
+3. **层次化方法**：
+   - 先对每个段落编码（512 token）
+   - 然后对所有段落的表示进行聚合（如另一个Transformer层）
+   
+4. **记忆增强**：
+   - 使用外部记忆模块存储长文档的信息
+   - 如Memory Transformer等
+
+**总结**：BERT的512限制来自位置嵌入和计算复杂度。对于长文档，可以使用滑动窗口或更长的模型（如Longformer）。
+</details>
 
 ---
 
-#### 思考题：改进分析
-
-**问题**：本算法在[特定场景]下存在哪些局限性？请提出改进方案。
-
-**答案与解析**：
-
-**局限性分析**：
-1. **局限性1**：[具体表现]，原因是[原因解释]
-2. **局限性2**：[具体表现]，原因是[原因解释]
-
-**改进方案对比**：
-
-| 改进方法 | 原理 | 优势 | 代价 |
-|---------|------|------|------|
-| 方法A | [原理] | [好处] | [额外成本] |
-| 方法B | [原理] | [好处] | [额外成本] |
-| 方法C | [原理] | [好处] | [额外成本] |
-
-**推荐方案**：在实际应用中优先考虑[方法A]，因为[理由]。
 ## 14. 学习路径建议
 
-### 14.1 前置
+### 初级阶段（掌握BERT基础）
+1. 理解BERT的双向编码器架构和Transformer基础
+2. 掌握MLM和NSP预训练任务
+3. 学会使用Hugging Face Transformers加载和微调BERT
+4. 理解输入表示：词嵌入 + 段嵌入 + 位置嵌入
 
-- Transformer
-- Attention
+**学习时间**：3-4周**
 
-### 14.2 进阶
+### 中级阶段（深入理解原理）
+1. 推导BERT的预训练目标和损失函数
+2. 理解80-10-10规则和预训练-微调匹配问题
+3. 掌握不同下游任务的微调技巧（分类、QA、NER）
+4. 探索BERT的变体：RoBERTa、ALBERT、ELECTRA等
 
-- RoBERTa
-- ALBERT
+**学习时间**：4-6周**
 
-### 14.3 资源
+### 高级阶段（前沿研究）
+1. 研究更高效的预训练方法：ELECTRA、GCNN等
+2. 了解长文档Transformer：Longformer、BigBird等
+3. 探索领域适应：BioBERT、SciBERT等
+4. 研究模型压缩：DistilBERT、MobileBERT、量化、剪枝
+5. 探索多语言和多模态BERT变体
 
-1. Devlin et al., 2019
-2. Hugging Face Transformers
+**学习时间**：6-8周**
 
----
+### 实践项目建议
+1. **基础项目**：情感分析（如IMDB电影评论），微调BERT-Base
+2. **进阶项目**：问答系统（SQuAD数据集），实现span prediction
+3. **挑战项目**：命名实体识别（CoNLL-2003），处理嵌套实体或跨句依赖
 
-*BERT开启了NLP预训练+微调的新范式，是深度学习NLP的里程碑。*
+### 推荐资源
+- **书籍**：《Natural Language Processing with Transformers》（Lewis Tunstall等）；《Speech and Language Processing》（Dan Jurafsky等）第部分
+- **课程**：Stanford CS224N（NLP with Deep Learning）；Hugging Face课程（https://huggingface.co/learn）
+- **论文**：Devlin et al. (2018) BERT论文；Liu et al. (2019) RoBERTa论文；Clark et al. (2020) ELECTRA论文
+- **代码**：Hugging Face Transformers官方文档；BERT GitHub仓库（https://github.com/google-research/bert）
+- **实践**：Hugging Face平台（https://huggingface.co/）；使用预训练BERT进行各种NLP任务；参与Kaggle NLP竞赛

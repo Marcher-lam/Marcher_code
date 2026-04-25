@@ -343,3 +343,312 @@ $$最终结果 = [综合计算] = [具体数值]$$
 ## 14. 学习路径建议建议
 
 学习Focal Loss建议按照以下路径进行：首先理解类别不平衡问题的本质以及它对模型训练的影响；然后学习传统的解决方法如类别加权、欠采样、过采样、OHEM等；接着深入学习Focal Loss的数学公式和物理意义；通过实验对比Focal Loss与标准交叉熵损失的效果差异；在自己的项目中应用Focal Loss，可以从目标检测或医学图像分割任务开始；最后研究Focal Loss的变体如Focal Loss的DFL（Distribution Focal Loss）等扩展工作。
+
+---
+
+## 补充材料：Focal Loss变体与扩展
+
+### A1. Equalized Focal Loss (EFLN)
+
+Equalized Focal Loss针对前景与背景不平衡提出：
+
+$$FL_{EQL}(p_t) = -\alpha_t(1-p_t)^{\gamma+\delta}\log(p_t)$$
+
+其中$\delta$是根据样本困难程度动态调整的参数。
+
+### A2. Quality Focal Loss (QFL)
+
+质量焦损用于检测框质量打分：
+
+$$QFL(p, q) = -|q - q_\tau|^\beta \cdot ((1-p_t)^\gamma \log(p_t) + p_t^\gamma \log(1-p_t))$$
+
+其中$q$是预测质量分数，$q_\tau$是质量阈值。
+
+### A3. Distribution Focal Loss (DFL)
+
+分布焦损用于边界框回归：
+
+$$DFL(\sigma) = -\sum_{i=1}^{n} (p_{c_i} \cdot \log(\sigma_i) + (1-p_{c_i}) \cdot \log(1-\sigma_i))$$
+
+其中$\sigma_i$是softmax输出的离散分布。
+
+### A4. 组合使用Focal Loss的最佳实践
+
+```python
+class FocalLoss Combinator(nn.Module):
+    """组合使用不同Focal Loss变体"""
+    
+    def __init__(self, alpha=0.25, gamma=2.0, use_ohem=True, ohem_ratio=3):
+        super().__init__()
+        self.focal = FocalLoss(alpha=alpha, gamma=gamma)
+        self.use_ohem = use_ohem
+        self.ohem_ratio = ohem_ratio
+    
+    def forward(self, predictions, targets):
+        loss = self.focal(predictions, targets)
+        
+        if self.use_ohem:
+            loss = self._ohem_loss(loss, targets, self.ohem_ratio)
+        
+        return loss
+    
+    def _ohem_loss(self, loss, targets, ratio):
+        """在线难例挖掘"""
+        batch_size = loss.size(0)
+        
+        kept = batch_size // ratio
+        
+        _, sorted_idx = loss.sort(descending=True)
+        selected_idx = sorted_idx[:kept]
+        
+        return loss[selected_idx].mean()
+
+
+class MultiTaskFocalLoss(nn.Module):
+    """多任务Focal Loss"""
+    
+    def __init__(self, num_classes=80, gamma=2.0, alpha=0.25):
+        super().__init__()
+        self.num_classes = num_classes
+        self.gamma = gamma
+        self.alpha = alpha
+        self.focal_loss = FocalLoss(gamma=gamma, alpha=alpha)
+        self.bce_loss = nn BCEWithLogitsLoss(reduction='none')
+    
+    def forward(self, outputs, targets):
+        cls_output = outputs[:, :self.num_classes]
+        reg_output = outputs[:, self.num_classes:]
+        
+        cls_loss = self.focal_loss(cls_output, targets[:, 0].long())
+        reg_loss = self.bce_loss(reg_output, targets[:, 1]).mean()
+        
+        total_loss = cls_loss + 0.1 * reg_loss
+        
+        return total_loss, cls_loss, reg_loss
+```
+
+### A5. Focal Loss与医学图像分析
+
+医学影像中的类别不平衡问题尤为突出，Focal Loss在那里有重要应用：
+
+```python
+def create_medical_focal_loss(class_weights):
+    """医学图像专用的Focal Loss
+    
+    class_weights: 针对不同类别的权重，如 tumor: 10, normal: 1
+    """
+    alpha = class_weights / class_weights.sum()
+    gamma = 2.0
+    
+    def loss_fn(predictions, targets):
+        probs = torch.sigmoid(predictions)
+        
+        ce_loss = F.binary_cross_entropy_with_logits(predictions, targets, reduction='none')
+        
+        p_t = probs * targets + (1 - probs) * (1 - targets)
+        focal_weight = (1 - p_t) ** gamma
+        
+        alpha_t = alpha[targets.long()]
+        
+        return (alpha_t * focal_weight * ce_loss).mean()
+    
+    return loss_fn
+
+
+def evaluate_medical_detection(model, test_loader, threshold=0.5):
+    """医学检测评估：关注敏感度和特异度"""
+    model.eval()
+    
+    all_preds = []
+    all_targets = []
+    
+    with torch.no_grad():
+        for images, targets in test_loader:
+            outputs = model(images)
+            preds = (torch.sigmoid(outputs) > threshold).float()
+            all_preds.append(preds)
+            all_targets.append(targets)
+    
+    all_preds = torch.cat(all_preds)
+    all_targets = torch.cat(all_targets)
+    
+    tp = ((all_preds == 1) & (all_targets == 1)).sum()
+    tn = ((all_preds == 0) & (all_targets == 0)).sum()
+    fp = ((all_preds == 1) & (all_targets == 0)).sum()
+    fn = ((all_preds == 0) & (all_targets == 1)).sum()
+    
+    sensitivity = tp / (tp + fn)
+    specificity = tn / (tn + fp)
+    dice = 2 * tp / (2 * tp + fp + fn)
+    
+    return {
+        'sensitivity': sensitivity.item(),
+        'specificity': specificity.item(),
+        'dice': dice.item()
+    }
+```
+
+### A6. Focal Loss可视化进阶
+
+```python
+import numpy as np
+import matplotlib.pyplot as plt
+
+def visualize_focal_loss_detailed():
+    """详细的Focal Loss可视化"""
+    p_t = np.linspace(0.001, 0.999, 100)
+    gamma_values = [0, 1, 2, 3, 4]
+    alpha = 0.25
+    
+    fig, axes = plt.subplots(2, 2, figsize=(14, 12))
+    
+    # 1. Focal Loss曲线
+    ax = axes[0, 0]
+    for gamma in gamma_values:
+        if gamma == 0:
+            fl = -alpha * np.log(p_t)
+        else:
+            fl = -alpha * (1 - p_t) ** gamma * np.log(p_t)
+        ax.plot(p_t, fl, label=f'γ={gamma}')
+    
+    ax.set_xlabel('p_t (正类预测概率)')
+    ax.set_ylabel('Focal Loss')
+    ax.set_title('Focal Loss Curves')
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    ax.set_xlim(0, 1)
+    
+    # 2. 有效权重
+    ax = axes[0, 1]
+    for gamma in gamma_values:
+        weight = (1 - p_t) ** gamma
+        ax.plot(p_t, weight, label=f'γ={gamma}')
+    
+    ax.set_xlabel('p_t')
+    ax.set_ylabel('有效权重 (1-p_t)^γ')
+    ax.set_title('Effective Weights')
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    
+    # 3. 类别不平衡效果
+    ax = axes[1, 0]
+    imbalance_ratios = [1, 10, 100, 1000]
+    
+    for ratio in imbalance_ratios:
+        alpha_pos = 1 / (1 + ratio)
+        alpha_neg = ratio / (1 + ratio)
+        
+        fl_pos = -alpha_pos * (1 - p_t) ** 2 * np.log(p_t)
+        fl_neg = -alpha_neg * p_t ** 2 * np.log(1 - p_t + 1e-10)
+        
+        ax.plot(p_t, fl_pos, label=f'正类 (α={alpha_pos:.3f})')
+        ax.plot(p_t, fl_neg, linestyle='--', label=f'负类 (α={alpha_neg:.3f})')
+    
+    ax.set_xlabel('p_t')
+    ax.set_ylabel('Loss')
+    ax.set_title('Class Imbalance Effect')
+    ax.legend(fontsize=8)
+    ax.grid(True, alpha=0.3)
+    
+    # 4. 对比不同损失函数
+    ax = axes[1, 1]
+    
+    ce = -np.log(p_t)
+    focal = -0.25 * (1 - p_t) ** 2 * np.log(p_t)
+    ohem = np.where(p_t > 0.5, ce, focal * 10)
+    
+    ax.plot(p_t, ce, label='Cross Entropy', linewidth=2)
+    ax.plot(p_t, focal, label='Focal Loss', linewidth=2)
+    ax.plot(p_t, ohem, label='OHEM + Focal', linewidth=2)
+    
+    ax.set_xlabel('p_t')
+    ax.set_ylabel('Loss')
+    ax.set_title('Comparison of Loss Functions')
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.savefig('focal_loss_detailed.png', dpi=150)
+    plt.show()
+
+
+def analyze_gamma_sensitivity():
+    """分析γ参数的敏感性"""
+    np.random.seed(42)
+    
+    gammas = [0.5, 1.0, 1.5, 2.0, 2.5, 3.0]
+    bg_fg_ratios = [1, 10, 50, 100, 500, 1000]
+    
+    results = np.zeros((len(gammas), len(bg_fg_ratios)))
+    
+    for i, gamma in enumerate(gammas):
+        for j, ratio in enumerate(bg_fg_ratios):
+            alpha_pos = 0.25
+            alpha_neg = 0.75
+            
+            p_fg = 0.9
+            p_bg = 0.1
+            
+            loss_fg = -alpha_pos * (1 - p_fg) ** gamma * np.log(p_fg)
+            
+            ratio_adjusted = ratio / (1 + ratio)
+            loss_bg = -alpha_neg * ratio_adjusted * p_bg ** gamma * np.log(1 - p_bg)
+            
+            results[i, j] = loss_fg + loss_bg
+    
+    plt.figure(figsize=(10, 6))
+    
+    for i, gamma in enumerate(gammas):
+        plt.plot(bg_fg_ratios, results[i], 'o-', label=f'γ={gamma}', linewidth=2)
+    
+    plt.xlabel('背景/前景比例 (log scale)')
+    plt.ylabel('总损失')
+    plt.title('γ Sensitivity Analysis')
+    plt.legend()
+    plt.xscale('log')
+    plt.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.savefig('gamma_sensitivity.png', dpi=150)
+    plt.show()
+
+
+def show_hard_example_mining_effect():
+    """展示OHEM与Focal Loss的组合效果"""
+    np.random.seed(42)
+    
+    difficulties = ['Easy', 'Medium', 'Hard']
+    
+    methods = {
+        'CE': [0.01, 0.05, 0.15],
+        'Focal': [0.02, 0.08, 0.25],
+        'OHEM': [0.05, 0.12, 0.35],
+        'Focal+OHEM': [0.03, 0.10, 0.40]
+    }
+    
+    x = np.arange(len(difficulties))
+    width = 0.2
+    
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    for i, (method, values) in enumerate(methods.items()):
+        ax.bar(x + i*width, values, width, label=method)
+    
+    ax.set_xlabel('样本难度')
+    ax.set_ylabel('损失值')
+    ax.set_title('Hard Example Mining Effect')
+    ax.set_xticks(x + width * 1.5)
+    ax.set_xticklabels(difficulties)
+    ax.legend()
+    ax.grid(True, alpha=0.3, axis='y')
+    
+    plt.tight_layout()
+    plt.savefig('ohem_effect.png', dpi=150)
+    plt.show()
+
+
+if __name__ == '__main__':
+    visualize_focal_loss_detailed()
+    analyze_gamma_sensitivity()
+    show_hard_example_mining_effect()
+```

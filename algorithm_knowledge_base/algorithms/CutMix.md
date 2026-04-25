@@ -370,3 +370,248 @@ $$最终结果 = f(第一计算, 第二计算) = [最终值]$$
 ## 14. 学习路径建议建议
 
 学习CutMix建议按照以下路径进行：先学习Mixup和标准数据增强；理解CutMix的空间混合原理；实践CutMix代码；与Mixup比较并结合使用。
+
+---
+
+## 补充材料：CutMix变体与扩展
+
+### A1. CutMix的变体方法
+
+**GridMask**：
+将CutMix的矩形区域替换为网格状遮罩：
+```python
+def gridmask(image, grid_size=32, ratio=0.6):
+    """GridMask实现"""
+    h, w = image.shape[:2]
+    mask = torch.ones(h, w)
+    
+    for i in range(0, h, grid_size):
+        for j in range(0, w, grid_size):
+            if random.random() < ratio:
+                mask[i:i+grid_size//2, j:j+grid_size//2] = 0
+    
+    return image * mask.unsqueeze(0)
+```
+
+**Cutout**：只遮罩不填充：
+```python
+def cutout(image, size=16):
+    """Cutout实现"""
+    h, w = image.shape[2:]
+    y = random.randint(0, h)
+    x = random.randint(0, w)
+    
+    y1 = max(0, y - size // 2)
+    y2 = min(h, y + size // 2)
+    x1 = max(0, x - size // 2)
+    x2 = min(w, x + size // 2)
+    
+    image[:, :, y1:y2, x1:x2] = 0
+    return image
+```
+
+**Mosaic**：将4张图像拼接为一张：
+```python
+def mosaic(images):
+    """Mosaic数据增强"""
+    batch_size = images.size(0)
+    h, w = images.shape[2:]
+    
+    result = torch.zeros(batch_size, 3, h*2, w*2)
+    
+    for i in range(batch_size):
+        idx = random.sample(range(batch_size), 4)
+        result[i, :, :h, :w] = images[idx[0]]
+        result[i, :, :h, w:] = images[idx[1]]
+        result[i, :, h:, :w] = images[idx[2]]
+        result[i, :, h:, w:] = images[idx[3]]
+    
+    return result
+```
+
+### A2. CutMix在不同任务中的应用
+
+**目标检测中的CutMix**：
+```python
+def cutmix_boxes(boxes1, labels1, boxes2, labels2, lam):
+    """目标检测中的CutMix"""
+    boxes1 = boxes1.float()
+    boxes2 = boxes2.float()
+    
+    area1 = (boxes1[:, 2] - boxes1[:, 0]) * (boxes1[:, 3] - boxes1[:, 1])
+    area2 = (boxes2[:, 2] - boxes2[:, 0]) * (boxes2[:, 3] - boxes2[:, 1])
+    
+    lam = 1 - ((bbx2 - bbx1) * (bby2 - bby1) / (h * w))
+    
+    boxes = boxes1 * lam + boxes2 * (1 - lam)
+    labels = labels1 * lam + labels2 * (1 - lam)
+    
+    return boxes, labels
+```
+
+**语义分割中的CutMix**：
+```python
+def cutmix_segmentation(image, mask):
+    """语义分割中的CutMix"""
+    h, w = image.shape[2:]
+    
+    bbx1, bby1, bbx2, bby2 = rand_bbox(image.size(), lam)
+    
+    image[:, :, bbx1:bbx2, bby1:bby2] = image[indices, :, bbx1:bbx2, bby1:bby2]
+    mask[:, :, bbx1:bbx2, bby1:bby2] = mask[indices, :, bbx1:bbx2, bby1:bby2]
+    
+    return image, mask
+```
+
+### A3. CutMix的超参数选择
+
+| 参数 | 作用 | 推荐值 | 调参建议 |
+|------|------|--------|----------|
+| α | Beta分布参数 | 1.0 | 越大混合越均匀 |
+| p | 应用概率 | 0.5 | 与Mixup配合时降低 |
+| size | 切割框大小 | 10-40%图像 | 小目标用更小 |
+
+### A4. CutMix的可视化
+
+```python
+import numpy as np
+import matplotlib.pyplot as plt
+
+def visualize_cutmix_algorithm():
+    """可视化CutMix算法流程"""
+    np.random.seed(42)
+    
+    fig, axes = plt.subplots(2, 4, figsize=(16, 8))
+    
+    # 示例图像
+    colors = ['red', 'blue', 'green']
+    
+    for row in range(2):
+        for col in range(4):
+            ax = axes[row, col]
+            
+            if col == 0:
+                img = np.zeros((64, 64, 3))
+                center = (20, 20)
+                cv2.rectangle(img, (center[0]-10, center[1]-10), 
+                          (center[0]+10, center[1]+10), colors[row], -1)
+                ax.imshow(img)
+                ax.set_title(f'Image A (class {row})')
+            elif col == 1:
+                ax.text(0.5, 0.5, 'Random\nCrop Box', ha='center', va='center', fontsize=12)
+                ax.set_xlim(0, 1)
+                ax.set_ylim(0, 1)
+                ax.set_title('Sample Box')
+                ax.axis('off')
+            elif col == 2:
+                img = np.zeros((64, 64, 3))
+                center = (45, 45)
+                cv2.rectangle(img, (center[0]-10, center[1]-10), 
+                          (center[0]+10, center[1]+10), colors[1-row], -1)
+                ax.imshow(img)
+                ax.set_title(f'Image B (class {1-row})')
+            else:
+                mixed = np.zeros((64, 64, 3))
+                cv2.rectangle(mixed, (15, 15), (30, 30), colors[row], -1)
+                cv2.rectangle(mixed, (30, 30), (50, 50), colors[1-row], -1)
+                ax.imshow(mixed)
+                ax.set_title('CutMix Result')
+            
+            ax.axis('off')
+    
+    plt.tight_layout()
+    plt.savefig('cutmix_algorithm.png', dpi=150)
+    plt.show()
+
+
+def plot_cutmix_vs_baseline():
+    """CutMix与基线的对比"""
+    datasets = ['CIFAR-10', 'CIFAR-100', 'ImageNet']
+    methods = ['Baseline', 'Mixup', 'CutMix', 'Mixup+CutMix']
+    
+    results = {
+        'CIFAR-10': [91.2, 92.5, 93.1, 94.3],
+        'CIFAR-100': [63.5, 66.8, 68.2, 71.5],
+        'ImageNet': [76.2, 77.8, 78.5, 80.1]
+    }
+    
+    x = np.arange(len(methods))
+    width = 0.25
+    
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    for i, (dataset, accs) in enumerate(results.items()):
+        ax.bar(x + i*width, accs, width, label=dataset)
+    
+    ax.set_ylabel('Accuracy (%)')
+    ax.set_title('CutMix Performance Comparison')
+    ax.set_xticks(x + width)
+    ax.set_xticklabels(methods)
+    ax.legend()
+    ax.set_ylim(60, 100)
+    
+    plt.tight_layout()
+    plt.savefig('cutmix_comparison.png', dpi=150)
+    plt.show()
+
+
+def analyze_lambda_distribution():
+    """分析λ值的分布"""
+    np.random.seed(42)
+    alphas = [0.2, 0.5, 1.0, 2.0]
+    
+    plt.figure(figsize=(10, 6))
+    
+    for alpha in alphas:
+        samples = np.random.beta(alpha, alpha, 10000)
+        plt.hist(samples, bins=50, alpha=0.5, label=f'α={alpha}')
+    
+    plt.xlabel('λ value')
+    plt.ylabel('Frequency')
+    plt.title('Beta Distribution for Different α')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.savefig('lambda_distribution.png', dpi=150)
+    plt.show()
+
+
+def show_cutmix_augmentation_samples():
+    """展示CutMix增强后的样本"""
+    fig, axes = plt.subplots(3, 6, figsize=(18, 9))
+    
+    for i in range(3):
+        for j in range(6):
+            ax = axes[i, j]
+            
+            if j < 3:
+                img = np.random.rand(64, 64, 3)
+                ax.imshow(img)
+                ax.set_title(f'Original {i}-{j}')
+            else:
+                lam = np.random.beta(1.0, 1.0)
+                img1 = np.random.rand(64, 64, 3) * np.array([1, 0, 0])
+                img2 = np.random.rand(64, 64, 3) * np.array([0, 0, 1])
+                
+                cx, cy = 32, 32
+                size = int(32 * np.sqrt(1 - lam))
+                img = img1.copy()
+                img[cy-size:cy+size, cx-size:cx+size] = img2[cy-size:cy+size, cx-size:cx+size]
+                
+                ax.imshow(img)
+                ax.set_title(f'λ={lam:.2f}')
+            
+            ax.axis('off')
+    
+    plt.tight_layout()
+    plt.savefig('cutmix_samples.png', dpi=150)
+    plt.show()
+
+
+if __name__ == '__main__':
+    visualize_cutmix_algorithm()
+    plot_cutmix_vs_baseline()
+    analyze_lambda_distribution()
+    show_cutmix_augmentation_samples()
+```

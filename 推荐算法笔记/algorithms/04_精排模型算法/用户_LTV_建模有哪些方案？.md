@@ -184,3 +184,93 @@ def evaluate_ltv(model, test_loader, device='cpu'):
 3. 掌握 ZILN 损失函数的推导与实现
 4. 研究长尾分布的处理策略（分桶、MoE）
 5. 实践 LTV 模型的评估与校准方法
+
+# 核心数学公式
+
+## 1. 对数正态分布的概率密度函数
+
+LTV 建模假设付费用户的金额服从对数正态分布，其概率密度函数为：
+
+$$
+f(y; \mu, \sigma) = \frac{1}{y \sigma \sqrt{2\pi}} \exp\left(-\frac{(\ln y - \mu)^2}{2\sigma^2}\right), \quad y > 0
+$$
+
+其中 $\mu$ 和 $\sigma$ 分别是对数域的均值和标准差。该分布右偏，长尾特性自然契合 LTV 数据的分布特征。
+
+## 2. ZILN 负对数似然损失函数
+
+ZILN 模型假设 LTV 服从零膨胀对数正态分布，其负对数似然损失为：
+
+$$
+\mathcal{L}_{ZILN} = -\frac{1}{N}\sum_{i=1}^{N} \left[ \mathbb{1}_{y_i=0} \log(1 - p_i) + \mathbb{1}_{y_i>0} \left( \log p_i + \log f(y_i; \mu_i, \sigma_i) \right) \right]
+$$
+
+展开对数正态分布的 log-likelihood 部分：
+
+$$
+\log f(y_i; \mu_i, \sigma_i) = -\frac{1}{2}\log(2\pi\sigma_i^2) - \frac{(\ln y_i - \mu_i)^2}{2\sigma_i^2} - \ln y_i
+$$
+
+其中 $p_i$ 是用户 $i$ 的付费概率（Sigmoid 输出），$\mu_i$ 是对数金额均值（Identity 输出），$\sigma_i$ 是对数金额标准差（Softplus 输出）。
+
+## 3. 期望 LTV 预测公式
+
+预测时，LTV 的期望值为付费概率与付费金额期望的乘积：
+
+$$
+\widehat{LTV}_i = p_i \cdot \mathbb{E}[Y_i | Y_i > 0] = p_i \cdot e^{\mu_i + \frac{\sigma_i^2}{2}}
+$$
+
+其中对数正态分布的期望为 $\mathbb{E}[Y | Y > 0] = e^{\mu + \sigma^2/2}$。
+
+## 4. 基尼系数（Gini Coefficient）计算公式
+
+基尼系数用于评估模型对高价值用户的排序能力，基于洛伦兹曲线计算：
+
+$$
+Gini = \frac{2\sum_{i=1}^{N} i \cdot y_{(i)}}{N \sum_{i=1}^{N} y_{(i)}} - \frac{N+1}{N}
+$$
+
+其中 $y_{(1)} \leq y_{(2)} \leq \ldots \leq y_{(N)}$ 是按预测值排序后的真实 LTV。
+
+归一化基尼系数：
+
+$$
+Normalized\text{-}Gini = \frac{Gini_{pred}}{Gini_{perfect}}
+$$
+
+其中 $Gini_{perfect}$ 是按真实 LTV 完美排序时的基尼系数。归一化基尼系数与 AUC 的近似关系：
+
+$$
+AUC \approx \frac{1 + Normalized\text{-}Gini}{2}
+$$
+
+## 5. ODMN 单调约束公式
+
+ODMN 通过单调网络保证不同时间跨度 LTV 预测的有序性：
+
+$$
+\hat{y}_7 \leq \hat{y}_{30} \leq \hat{y}_{90}
+$$
+
+实现方式为：
+
+$$
+\hat{y}_{30} = \hat{y}_7 + \text{Softplus}(g_{30}(x))
+$$
+
+$$
+\hat{y}_{90} = \hat{y}_{30} + \text{Softplus}(g_{90}(x))
+$$
+
+其中 $\text{Softplus}(x) = \ln(1 + e^x) > 0$ 保证了增量非负，从而满足单调性约束。
+
+## 6. MDME 分桶采样损失
+
+MDME 对不同值域区间采用独立的回归损失：
+
+$$
+\mathcal{L}_{MDME} = \sum_{b=1}^{B} w_b \cdot \frac{1}{|S_b|} \sum_{i \in S_b} (y_i - \hat{y}_i)^2
+$$
+
+其中 $S_b$ 是第 $b$ 个桶的样本集合，$w_b$ 是桶权重（通常与桶内样本量成反比，以缓解不平衡问题）。

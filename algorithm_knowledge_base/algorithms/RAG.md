@@ -43,7 +43,7 @@ RAG的核心创新是**将参数化知识和非参数化知识分离**：
 ### 2.3 关键概念
 
 - **Retriever（检索器）**：负责从知识库中找出相关文档，常用BM25或Dense Retriever
-- **Generator（生成器）：负责基于检索结果生成回答，通常是预训练语言模型
+- **Generator（生成器）**：负责基于检索结果生成回答，通常是预训练语言模型
 - **Index（索引）**：将文档向量化后存储的结构，用于快速检索
 - **Chunk（文本块）**：将长文档切分成的较小单元
 - **Embedding（嵌入）**：将文本映射到向量空间的技术
@@ -62,6 +62,7 @@ RAG的核心创新是**将参数化知识和非参数化知识分离**：
 | $z$ | 检索到的上下文 |
 | $y$ | 生成的回答 |
 | $\theta$ | 生成器参数 |
+| $\phi$ | 检索器参数 |
 
 ### 3.2 问题形式化
 
@@ -153,12 +154,24 @@ qa = RetrievalQA.from_chain_type(
 2. **减少幻觉**：基于真实文档
 3. **可解释性**：可追溯来源
 4. **成本低**：比微调便宜
+5. **实时性**：知识库可实时更新
 
 ### 6.2 缺点
 
-1. **依赖检索质量**
-2. **延迟较高**
-3. **上下文长度限制**
+1. **依赖检索质量**：检索不好则生成差
+2. **延迟较高**：增加检索步骤
+3. **上下文限制**：受LLM context window限制
+4. **复杂场景**：复杂推理可能不足
+5. **维护成本**：需要维护知识库
+
+### 6.3 变体
+
+| 变体 | 描述 | 特点 |
+|------|------|------|
+| Naive RAG | 基础检索+生成 | 最简单 |
+| Retrying RAG | 失败后重试 | 更鲁棒 |
+| Query Rewrite | 重写查询 | 更精确 |
+| HyDE | 生成假设文档 | 更语义化 |
 
 ---
 
@@ -203,6 +216,77 @@ answer = qa.run(question)
 print(answer)
 ```
 
+### 7.2 高级版本
+
+```python
+"""
+高级RAG实现：包含query rewrite和 HyDE
+"""
+
+from langchain.retrievers import ContextualCompressionRetriever
+from langchain.retrievers.llm_chain_filter import LLMChainFilter
+
+class AdvancedRAG:
+    def __init__(self, vectorstore, llm):
+        self.vectorstore = vectorstore
+        self.llm = llm
+        
+        # 基础检索器
+        base_retriever = vectorstore.as_retriever(
+            search_kwargs={"k": 5}
+        )
+        
+        # 使用LLM过滤
+        self.retriever = ContextualCompressionRetriever(
+            base_compressor=LLMChainFilter(llm=llm),
+            base_retriever=base_retriever
+        )
+    
+    def query_rewrite(self, query):
+        """Query rewrite prompt"""
+        prompt = f"Rewrite this question to be more informative:\n{query}"
+        return self.llm(prompt)
+    
+    def generate_hyde(self, query):
+        """HyDE: 生成假设文档"""
+        prompt = f"Write a hypothetical document answering this question:\n{query}"
+        return self.llm(prompt)
+    
+    def retrieve(self, query):
+        """检索"""
+        # 可以加入query rewrite
+        # rewritten = self.query_rewrite(query)
+        return self.retriever.invoke(query)
+    
+    def answer(self, question, context):
+        """生成回答"""
+        prompt = f"""Based on the following context, answer the question.
+
+Context:
+{context}
+
+Question: {question}
+
+Answer:"""
+        return self.llm(prompt)
+
+
+def demo_advanced_rag():
+    """演示"""
+    print("=" * 50)
+    print("Advanced RAG 演示")
+    print("=" * 50)
+    
+    # 简化示例（需实际API key）
+    # rag = AdvancedRAG(vectorstore, llm)
+    print("Advanced RAG features:")
+    print("1. Query Rewrite")
+    print("2. HyDE")
+    print("3. LLM-based filtering")
+    
+    return None
+```
+
 ---
 
 ## 8. 手工实现
@@ -214,29 +298,85 @@ print(answer)
 
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.feature_extraction.text import TfidfVectorizer
+import re
 
 class SimpleRAG:
-    def __init__(self, documents, embedder):
+    def __init__(self, documents, embedder=None):
         self.documents = documents
         self.embedder = embedder
-        self.doc_embeddings = embedder.embed_documents(documents)
+        
+        # 使用TF-IDF作为简化embedding
+        self.vectorizer = TfidfVectorizer(max_features=5000)
+        self.doc_vectors = self.vectorizer.fit_transform(documents)
     
     def retrieve(self, query, k=3):
-        query_embedding = self.embedder.embed_query(query)
-        similarities = cosine_similarity([query_embedding], self.doc_embeddings)[0]
-        top_k = np.argsort(similarities)[-k:][::-1]
-        return [self.documents[i] for i in top_k]
+        """检索"""
+        query_vector = self.vectorizer.transform([query])
+        similarities = cosine_similarity(query_vector, self.doc_vectors)[0]
+        
+        top_k_indices = np.argsort(similarities)[-k:][::-1]
+        results = []
+        for idx in top_k_indices:
+            results.append({
+                'doc': self.documents[idx],
+                'score': similarities[idx]
+            })
+        return results
     
     def generate(self, query, context):
-        # 简化：直接拼接上下文
-        prompt = f"基于以下上下文回答问题：\n\n上下文：{context}\n\n问题：{query}\n回答："
-        return prompt
+        """简化生成"""
+        context_text = "\n\n".join([c['doc'] for c in context[:3]])
+        
+        prompt = f"""Based on the following context, answer the question. If the context doesn't contain relevant information, say so.
 
-# 测试
-docs = ["RAG是一种检索增强生成技术", "它可以结合外部知识库"]
-rag = SimpleRAG(docs, embedding_model)
-context = rag.retrieve("什么是RAG？")
-answer = rag.generate("什么是RAG？", context)
+Context:
+{context_text}
+
+Question: {query}
+
+Answer:"""
+        
+        return prompt
+    
+    def answer(self, question):
+        """完整流程"""
+        context = self.retrieve(question, k=3)
+        return self.generate(question, context)
+
+
+def manual_rag_demo():
+    """手工RAG演示"""
+    print("=" * 50)
+    print("Simple RAG 手工实现演示")
+    print("=" * 50)
+    
+    # 文档
+    docs = [
+        "RAG是一种检索增强生成技术，可以结合外部知识库",
+        "它可以减少模型幻觉，提供实时信息",
+        "RAG的核心组件包括检索器和生成器",
+        "检索常用embedding和向量数据库",
+    ]
+    
+    # 简化RAG
+    rag = SimpleRAG(docs)
+    
+    # 检索
+    results = rag.retrieve("什么是RAG？", k=2)
+    print("\n检索结果:")
+    for r in results:
+        print(f"  Score: {r['score']:.3f}")
+        print(f"  Doc: {r['doc'][:50]}...")
+    
+    # 生成
+    prompt = rag.generate("什么是RAG？", results)
+    print("\n生成Prompt:")
+    print(prompt)
+
+
+if __name__ == "__main__":
+    manual_rag_demo()
 ```
 
 ---
@@ -245,20 +385,91 @@ answer = rag.generate("什么是RAG？", context)
 
 ```python
 import matplotlib.pyplot as plt
+import numpy as np
 
 def visualize_rag():
-    # 检索得分可视化
-    scores = [0.9, 0.7, 0.5, 0.3, 0.1]
-    labels = [f"Doc {i+1}" for i in range(5)]
+    """RAG可视化"""
     
-    plt.figure(figsize=(10, 5))
-    plt.barh(labels, scores, color='steelblue')
-    plt.xlabel('Retrieval Score')
-    plt.title('RAG Retrieval Results')
-    plt.xlim(0, 1)
+    # 检索得分
+    scores = [0.92, 0.78, 0.65, 0.45, 0.32]
+    indices = range(1, 6)
+    
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+    
+    # 检索得分
+    axes[0].bar(indices, scores, color='steelblue')
+    axes[0].set_xlabel('Document Rank')
+    axes[0].set_ylabel('Retrieval Score')
+    axes[0].set_title('Retrieval Scores')
+    axes[0].set_xticks(indices)
+    axes[0].set_ylim(0, 1)
+    
+    # 检索vs生成质量
+    modes = ['Without RAG', 'With RAG']
+    metrics = ['Accuracy', 'Factual Correctness', 'Coverage']
+    
+    without_rag = [0.45, 0.52, 0.38]
+    with_rag = [0.78, 0.85, 0.72]
+    
+    x = np.arange(len(metrics))
+    width = 0.35
+    
+    axes[1].bar(x - width/2, without_rag, width, label='Without RAG', color='gray')
+    axes[1].bar(x + width/2, with_rag, width, label='With RAG', color='steelblue')
+    
+    axes[1].set_ylabel('Score')
+    axes[1].set_title('RAG vs No-RAG Comparison')
+    axes[1].set_xticks(x)
+    axes[1].set_xticklabels(metrics)
+    axes[1].legend()
+    axes[1].set_ylim(0, 1)
+    
     plt.tight_layout()
-    plt.savefig('rag_retrieval.png')
+    plt.savefig('rag_comparison.png', dpi=150)
     plt.show()
+
+
+def plot_rag_architecture():
+    """RAG架构图"""
+    
+    fig, ax = plt.subplots(1, 1, figsize=(14, 8))
+    ax.axis('off')
+    
+    # 简化架构图
+    components = [
+        "User Query",
+        "Embedding",
+        "Vector DB",
+        "Retrieval",
+        "Context",
+        "LLM",
+        "Answer"
+    ]
+    
+    positions = [(3, 6), (3, 5), (3, 4), (3, 3), (1, 2), (3, 1), (3, 0)]
+    
+    for i, (comp, (x, y)) in enumerate(zip(components, positions)):
+        ax.text(x, y, comp, fontsize=14, ha='center', va='center',
+              bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.8))
+    
+    # 箭头
+    for i in range(len(positions)-1):
+        ax.annotate('', xy=(positions[i+1][0], positions[i+1][1]+0.3),
+                 xytext=(positions[i][0], positions[i][1]-0.3),
+                 arrowprops=dict(arrowstyle='->', color='gray'))
+    
+    ax.set_title('RAG Architecture', fontsize=16)
+    ax.set_xlim(0, 6)
+    ax.set_ylim(-1, 7)
+    
+    plt.tight_layout()
+    plt.savefig('rag_architecture.png', dpi=150)
+    plt.show()
+
+
+if __name__ == "__main__":
+    visualize_rag()
+    plot_rag_architecture()
 ```
 
 ---
@@ -267,98 +478,166 @@ def visualize_rag():
 
 ### 10.1 指标
 
-| 指标 | 含义 |
-|------|------|
-| Recall@K | 检索覆盖率 |
-| 生成质量 | 答案相关性 |
-| 来源引用 | 是否准确引用 |
+| 指标 | 含义 | 计算方式 |
+|------|------|----------|
+| Recall@K | 检索覆盖率 | 检索到的相关文档/K |
+| Precision@K | 检索精确度 | 相关文档数/K |
+| Generation Quality | 生成质量 | 人工/自动评估 |
+| Answer Accuracy | 答案准确率 | 正确回答/总提问 |
+| Citation Accuracy | 引用准确率 | 正确引用/总引用 |
 
-### 10.2 代码
+### 10.2 评估代码
 
 ```python
-def evaluate_rag(qa, questions, ground_truth):
-    results = []
+def evaluate_rag(rag, questions, ground_truth):
+    """评估RAG系统"""
+    results = {
+        'retrieval_precision': [],
+        'retrieval_recall': [],
+        'generation_quality': []
+    }
+    
     for q in questions:
-        answer = qa.run(q)
-        # 计算相关指标
-        results.append({"question": q, "answer": answer})
-    return results
+        # 检索评估
+        retrieved = rag.retrieve(q, k=5)
+        
+        # 计算recall@K
+        relevant_retrieved = sum([1 for d in retrieved if d['doc'] in ground_truth[q])
+        precision = relevant_retrieved / len(retrieved)
+        results['retrieval_precision'].append(precision)
+        
+        # 生成评估
+        answer = rag.answer(q)
+        # 简化的质量评估
+        results['generation_quality'].append(answer)
+    
+    return {k: np.mean(v) for k, v in results.items()}
 ```
 
 ---
 
 ## 11. 常见问题
 
-### 11.1 问题
+### 11.1 检索问题
 
-**检索不到相关内容**：检查文档质量和切分方式
+**问题**：检索不到相关内容
 
-**生成质量差**：调整检索数量或提示词
+**原因**：
+1. 知识库内容不足
+2. Embedding不够好
+3. 查询质量差
 
-### 11.2 解决方案
+**解决方案**：
+1. 丰富知识库内容
+2. 使用更好的embedding模型（如OpenAI text-embedding-ada-002）
+3. 对查询进行重写
 
-```python
-# 增加检索数量
-retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
+### 11.2 生成问题
 
-# 使用更好的检索器
-from langchain.retrievers import ContextualCompressionRetriever
-```
+**问题**：生成质量差，有幻觉
+
+**原因**：
+1. 检索到的上下文不相关
+2. LLM不够强
+3. Prompt设计不当
+
+**解决方案**：
+1. 增加检索结果数量
+2. 使用更强的LLM
+3. 优化Prompt
+
+### 11.3 性能问题
+
+**问题**：延迟高
+
+**原因**：
+1. Embedding计算慢
+2. 向量检索慢
+3. LLM生成慢
+
+**解决方案**：
+1. 预计算Embedding
+2. 使用更快的向量数据库（如Faiss）
+3. 缓存常见问题
 
 ---
 
 ## 12. 学习总结
 
-### 12.1 核心
+### 核心要点
 
-✓ 检索+生成架构
-✓ 外部知识库
-✓ 减少幻觉
+1. **��索+生成**：两阶段架构
+2. **参数化和非参数化知识分离**
+3. **知识可更新，无需重新训练**
+4. **减少幻觉，提高准确性**
 
-### 12.2 算法联系
+### 算法联系
 
 - 前置：Transformer、Embedding
 - 相关：LangChain、LlamaIndex
-- 进阶：Agent、Tool Learning
+- 进阶：Agent、Tool Learning、Self-RAG
 
 ---
 
 ## 13. 练习题
 
-**问题**：RAG和微调的区别？
+**练习1**：RAG和微调的区别？
 
-答案：RAG可更新知识库，微调更新模型参数。
+<details>
+<summary>答案</summary>
+
+1. **更新方式**：RAG知识库可单独更新；微调需重新训练
+2. **成本**：RAG低，微调高
+3. **效果**：RAG针对特定任务弱于微调
+4. **幻觉**：RAG少，微调可能有
+
+</details>
+
+**练习2**：如何提高检索质量？
+
+<details>
+<summary>答案</summary>
+
+1. **Chunk大小**：调整合适的chunk size
+2. **Overlap**：适当的overlap
+3. **Embedding**：使用更好的embedding模型
+4. **重排序**：加入reranker
+
+</details>
+
+**思考题**：RAG的局限性和改进方向？
+
+<details>
+<summary>答案</summary>
+
+**局限性**：
+1. 检索质量决定上限
+2. 长context处理
+3. 多跳推理困难
+
+**改进**：
+1. HyDE
+2. Query rewrite
+3. Graph RAG
+</details>
 
 ---
 
 ## 14. 学习路径
 
-### 14.1 前置
+### 14.1 进阶路径
 
-- [ ] Transformer基础
-- [ ] 向量检索
+1. 基础：Transformer、Embedding
+2. 入门：LangChain使用
+3. 进阶：高级RAG技术
+4. 实践：实际项目
 
-### 14.2 进阶
-
-- [ ] LangChain
-- [ ] Agent
-
-### 14.3 资源
+### 14.2 资源
 
 1. 论文：Lewis et al., "RAG", 2020
 2. LangChain文档
-
----
-
-## 附录
-
-### A. 代码
-
-见第7节。
-
-### B. 参考文献
-
-1. Lewis et al., "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks", 2020
+3. LlamaIndex文档
+4. 开源RAG框架
 
 ---
 

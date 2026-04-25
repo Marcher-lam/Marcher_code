@@ -12,16 +12,16 @@
 4. 跨请求KV缓存等LLM优化技术</td></tr><tr><td>实验效果</td><td>离线实验：CTR预测AUC提升1.53%，CVR预测UAUC提升3.23%。
 线上A/B：在TikTok电商场景下，用户人均订单数提升4.35%，人均GMV提升5.68%，同时推理延迟有所降低。</td></tr></table>
 
-# ① 1 背景：从“分治”到“统一”的架构演进
+# ① 1 背景：从"分治"到"统一"的架构演进
 
 在推荐系统的精排阶段，理解用户兴趣主要依赖两方面信息：
 
  一是用户的历史行为序列（如点击、购买记录），  
  二是非序列特征（如用户画像、商品属性、上下文信息）。
 
-传统方法采用“先编码后交互”的范式：先用一个模块（如DIN）从行为序列中学习用户兴趣表示，再将这个表示与非序列特征拼接，送入另一个模块（如 DCNv2）进行高阶特征交叉。
+传统方法采用"先编码后交互"的范式：先用一个模块（如DIN）从行为序列中学习用户兴趣表示，再将这个表示与非序列特征拼接，送入另一个模块（如 DCNv2）进行高阶特征交叉。
 
-这种“分治”策略存在明显瓶颈：
+这种"分治"策略存在明显瓶颈：
 
  信息流动壁垒：序列建模模块无法利用用户画像、当前场景等非序列特征来辅助理解历史行为；反之，特征交互模块也难以在早期获得序列信息的滋养。  
  系统效率低下：模块分立导致计算图碎片化，无法应用 LLM的高效优化技术（如 KV缓存），增加了推理时延，也阻碍了模型的统一缩放。
@@ -32,7 +32,7 @@
 ![](images/2febb1af5f11df2935ea277e20f11fc29ba730671540016d79044c4bd2412aa9.jpg)  
 (b) OneTrans
 
-OneTrans 的核心思想就是拆掉这堵“模块墙”，用一个统一的 Transformer 模型来协同完成这两项任务。
+OneTrans 的核心思想就是拆掉这堵"模块墙"，用一个统一的 Transformer 模型来协同完成这两项任务。
 
 # ① 2 模型原理
 
@@ -81,7 +81,7 @@ OneTrans 巧妙地借鉴了LLM的成熟优化技术，这对于工业部署至�
 
 消融实验验证了其关键设计的有效性：Auto-Split Tokenizer 优于分组方式，时间戳感知融合最优，为非序列 Token 分配特定参数至关重要等。
 
-<table><tr><td rowspan="2">Type</td><td rowspan="2">Model</td><td colspan="2">CTR</td><td colspan="2">CVR (order)</td><td colspan="2">Efficiency</td></tr><tr><td>AUC↑</td><td>UAUC↑</td><td>AUC↑</td><td>UAUC↑</td><td>Params (M)</td><td>TFLOPs</td></tr><tr><td>(1) Base model</td><td>DCNv2 + DIN (base)*</td><td>0.79623</td><td>0.71927</td><td>0.90361</td><td>0.71955</td><td>10</td><td>0.06</td></tr><tr><td rowspan="3">(2) Feature-interaction</td><td>Wukong + DIN</td><td>+0.08%</td><td>+0.11%</td><td>+0.14%</td><td>+0.11%</td><td>28</td><td>0.54</td></tr><tr><td>HiFormer + DIN</td><td>+0.11%</td><td>+0.18%</td><td>+0.23%</td><td>-0.20%</td><td>108</td><td>1.35</td></tr><tr><td>RankMixer + DIN*</td><td>+0.27%</td><td>+0.36%</td><td>+0.43%</td><td>+0.19%</td><td>107</td><td>1.31</td></tr><tr><td rowspan="3">(3) Sequence-modeling</td><td>RankMixer + StackDIN</td><td>+0.40%</td><td>+0.37%</td><td>+0.63%</td><td>-1.28%</td><td>108</td><td>1.43</td></tr><tr><td>RankMixer + LONGER</td><td>+0.49%</td><td>+0.59%</td><td>+0.47%</td><td>+0.44%</td><td>109</td><td>1.87</td></tr><tr><td>RankMixer + Transformer*</td><td>+0.57%</td><td>+0.90%</td><td>+0.52%</td><td>+0.75%</td><td>109</td><td>2.51</td></tr><tr><td rowspan="2">(4) Unified framework</td><td>ONETRANSS*</td><td>+1.13%</td><td>+1.77%</td><td>+0.90%</td><td>+1.66%</td><td>91</td><td>2.64</td></tr><tr><td>ONETRANSL (default)*</td><td>+1.53%</td><td>+2.79%</td><td>+1.14%</td><td>+3.23%</td><td>330</td><td>8.62</td></tr></table>
+<table><tr><td rowspan="2">Type</td><td rowspan="2">Model</td><td colspan="2">CTR</td><td colspan="2">CVR (order)</td><td colspan="2">Efficiency</td></tr><tr><td>AUC↑</td><td>UAUC↑</td><td>AUC↑</td><td>UAUC↑</td><td>Params (M)</td><td>TFLOPs</td></tr><tr><td>(1) Base model</td><td>DCNv2 + DIN (base)*</td><td>0.79623</td><td>0.71927</td><td>0.90361</td><td>0.71955</td><td>10</td><td>0.06</td></tr><tr><td rowspan="3">(2) Feature-interaction</td><td>Wukong + DIN</td><td>+0.08%</td><td>+0.11%</td><td>+0.14%</td><td>+0.11%</td><td>28</td><td>0.54</td></tr><tr><td>HiFormer + DIN</td><td>+0.11%</td><td>+0.18%</td><td>+0.23%</td><td>-0.20%</td><td>108</td><td>1.35</td></tr><tr><td>RankMixer + DIN*</td><td>+0.27%</td><td>+0.36%</td><td>+0.43%</td><td>+0.19%</td><td>107</td><td>1.31</</tr></tr></table>
 
 # 线上 A/B 测试
 
@@ -95,11 +95,11 @@ OneTrans 巧妙地借鉴了LLM的成熟优化技术，这对于工业部署至�
 
  OneTrans 模型的核心贡献在于，它成功地将推荐系统中的【序列建模】和【特征交互】两个关键任务统一到了一个简洁、强大的 Transformer 架构中。  
  它通过混合参数化策略巧妙解决了特征异质性难题，并通过金字塔堆叠和跨请求 KV 缓存等设计，在保证模型性能的同时，极大地提升了计算效率，满足了工业应用对低延迟和高吞吐的严苛要求。  
- 该工作不仅提升了推荐效果，更重要的是为推荐模型的设计提供了一个新的、可扩展的范式，标志着推荐系统向“大一统”的架构演进迈出了关键一步。
+ 该工作不仅提升了推荐效果，更重要的是为推荐模型的设计提供了一个新的、可扩展的范式，标志着推荐系统向"大一统"的架构演进迈出了关键一步。
 
  论文标题：《TokenMixer-Large: Scaling Up Large Ranking Models in Industrial Recommenders》   
- 论文链接：https://arxiv.org/abs/2602.06563  
- 发表单位&年份：字节跳动，2026  
+ 论文链接：https://arxiv.org/abs/2602.06563   
+ 发表单位&年份：字节跳动，2026   
  关键词：大模型 Scaling Up、精排模型、推荐系统、TokenMixer、混合专家 (MoE)、工业部署
 
 # 一、 研究背景
@@ -111,9 +111,9 @@ OneTrans 巧妙地借鉴了LLM的成熟优化技术，这对于工业部署至�
 # RankMixer 存在的问题：
 
  次优的残差设计：残差连接中，混合前后的Token 维度与语义可能不匹配，阻碍信息传播。  
- 模型架构不“纯”：历史遗留了许多碎片化算子，计算强度低但内存开销高，拉低整体硬件利用率。  
+ 模型架构不"纯"：历史遗留了许多碎片化算子，计算强度低但内存开销高，拉低整体硬件利用率。  
  深层模型梯度更新不足：原TokenMixer 通常较浅（如 2层），增加深度后难以稳定训练和获得增益。  
- MoE 稀疏化不充分：RankMixer 使用“稠密训练，稀疏推理”的 MoE 范式，无法降低训练成本，且激活的专家数动态变化，对推理不友好。  
+ MoE 稀疏化不充分：RankMixer 使用"稠密训练，稀疏推理"的 MoE 范式，无法降低训练成本，且激活的专家数动态变化，对推理不友好。  
  扩展探索有限：受框架和训练效率限制，参数规模仅达到约 10 亿。
 
 TokenMixer-Large 的目标就是通过系统性的架构演进，设计一个面向极大规模推荐的模型，解决上述问题。
@@ -147,7 +147,7 @@ TokenMixer-Large 的目标就是通过系统性的架构演进，设计一个面
 #  残差连接与归一化：
 
  标准残差：采用 Pre-Norm 设计（将 LayerNorm 置于残差分支计算前）替换原有的 Post-Norm，以提升训练稳定性。同时，用更轻量的 RMSNorm 替代 LayerNorm。  
- 层间残差与辅助损失：除了标准残差，每隔几层添加层间残差连接，将底层特征直接传到高层，缓解梯度消失。同时，计算底层输出与高层输出的联合损失，形成辅助损失，迫使底层学习“预测高层特征的偏差”，增强其表征能力，确保深层网络中所有参数都得到充分训练。
+ 层间残差与辅助损失：除了标准残差，每隔几层添加层间残差连接，将底层特征直接传到高层，缓解梯度消失。同时，计算底层输出与高层输出的联合损失，形成辅助损失，迫使底层学习"预测高层特征的偏差"，增强其表征能力，确保深层网络中所有参数都得到充分训练。
 
 ![](images/ed1fb30e3390e237ca7f73050160f22b62c9d81199fe2f36690444eb0e040f19.jpg)  
 Internal Residual
@@ -159,7 +159,7 @@ Auxiliary Loss
 
 为了在扩大规模时保持高性价比，设计了 Sparse-Pertoken MoE。
 
- 策略：采用“先扩大，后稀疏”的迭代策略。先设计出性能最佳的全激活稠密模型，再将每个Token的SwiGLU精细化为多个子专家，并进行稀疏激活，实现“稀疏训练，稀疏服务”，大幅降低训练和推理成本。
+ 策略：采用"先扩大，后稀疏"的迭代策略。先设计出性能最佳的全激活稠密模型，再将每个Token的SwiGLU精细化为多个子专家，并进行稀疏激活，实现"稀疏训练，稀疏服务"，大幅降低训练和推理成本。
 
 #  关键设计：
 
@@ -192,7 +192,7 @@ c. 在离线实验中，模型在广告、电商、直播场景分别成功扩�
 
 # 3. 消融实验：
 
-a. 验证了“混合与还原”、Per-token SwiGLU、残差连接、层间残差与辅助损失等核心组件的有效性。其中“混合与还原”和 Per-token SwiGLU 贡献最大。  
+a. 验证了"混合与还原"、Per-token SwiGLU、残差连接、层间残差与辅助损失等核心组件的有效性。其中"混合与还原"和 Per-token SwiGLU 贡献最大。  
 b. 验证了Sparse-Pertoken MoE中共享专家、门控值缩放、下行矩阵小初始化等设计的正向作用。
 
 # 4. 在线性能：
@@ -213,5 +213,174 @@ TokenMixer-Large 是对原有 TokenMixer 架构的一次系统性升级。
 
 该工作不仅在多个业务场景中验证了其卓越的离线效果和线上收益，也为工业级推荐系统模型的架构设计与工程实现提供了重要参考。
 
-# 4.2 注意力机制
+# OneTrans 架构代码骨架
 
+```python
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+
+class AutoSplitTokenizer(nn.Module):
+    """非序列特征 Token 化：拼接后通过 MLP 分割为固定数量 Token"""
+    def __init__(self, feat_dim, n_tokens, d_token):
+        super().__init__()
+        self.mlp = nn.Sequential(
+            nn.Linear(feat_dim, n_tokens * d_token),
+            nn.ReLU(),
+        )
+        self.n_tokens = n_tokens
+        self.d_token = d_token
+
+    def forward(self, dense_features):
+        projected = self.mlp(dense_features)
+        return projected.view(-1, self.n_tokens, self.d_token)
+
+
+class SequenceTokenizer(nn.Module):
+    """序列特征 Token 化：MLP 投影 + 时间戳感知融合"""
+    def __init__(self, item_dim, d_token):
+        super().__init__()
+        self.proj = nn.Linear(item_dim, d_token)
+
+    def forward(self, seq_items):
+        return self.proj(seq_items)
+
+
+class OneTransBlock(nn.Module):
+    """OneTrans 块：混合参数化注意力 + FFN"""
+    def __init__(self, d_model, n_heads_seq, n_heads_nonseq, d_ff):
+        super().__init__()
+        self.attn_seq = nn.MultiheadAttention(d_model, n_heads_seq, batch_first=True)
+        self.attn_cross = nn.MultiheadAttention(d_model, n_heads_nonseq, batch_first=True)
+        self.ffn_seq = nn.Sequential(
+            nn.Linear(d_model, d_ff), nn.ReLU(), nn.Linear(d_ff, d_model)
+        )
+        self.ffn_nonseq = nn.ModuleList([
+            nn.Sequential(nn.Linear(d_model, d_ff), nn.ReLU(), nn.Linear(d_ff, d_model))
+            for _ in range(4)
+        ])
+        self.norm1 = nn.LayerNorm(d_model)
+        self.norm2 = nn.LayerNorm(d_model)
+
+    def forward(self, seq_tokens, nonseq_tokens, attn_mask=None):
+        seq_out, _ = self.attn_seq(seq_tokens, seq_tokens, seq_tokens, attn_mask=attn_mask)
+        seq_tokens = self.norm1(seq_tokens + seq_out)
+
+        combined = torch.cat([seq_tokens, nonseq_tokens], dim=1)
+        nonseq_out, _ = self.attn_cross(nonseq_tokens, combined, combined)
+        nonseq_tokens = self.norm2(nonseq_tokens + nonseq_out)
+
+        seq_tokens = seq_tokens + self.ffn_seq(seq_tokens)
+        for i in range(nonseq_tokens.size(1)):
+            nonseq_tokens[:, i] = nonseq_tokens[:, i] + self.ffn_nonseq[i](nonseq_tokens[:, i:i+1]).squeeze(1)
+
+        return seq_tokens, nonseq_tokens
+
+
+class OneTrans(nn.Module):
+    """OneTrans 完整模型"""
+    def __init__(self, feat_dim, item_dim, n_seq_tokens, n_nonseq_tokens, d_model, d_ff, n_layers, n_heads):
+        super().__init__()
+        self.seq_tokenizer = SequenceTokenizer(item_dim, d_model)
+        self.nonseq_tokenizer = AutoSplitTokenizer(feat_dim, n_nonseq_tokens, d_model)
+        self.blocks = nn.ModuleList([
+            OneTransBlock(d_model, n_heads, n_heads, d_ff) for _ in range(n_layers)
+        ])
+        self.pred_head = nn.Sequential(
+            nn.Linear(d_model * n_nonseq_tokens, d_model),
+            nn.ReLU(),
+            nn.Linear(d_model, 1),
+        )
+
+    def forward(self, seq_items, dense_features):
+        seq_tokens = self.seq_tokenizer(seq_items)
+        nonseq_tokens = self.nonseq_tokenizer(dense_features)
+
+        for block in self.blocks:
+            seq_tokens, nonseq_tokens = block(seq_tokens, nonseq_tokens)
+
+        pred = nonseq_tokens.view(nonseq_tokens.size(0), -1)
+        return self.pred_head(pred).squeeze(-1)
+```
+
+## OneTrans vs 传统分治方案对比
+
+| 维度 | 传统方案 (DIN + DCNv2) | OneTrans |
+|------|----------------------|----------|
+| 信息流向 | 单向（序列→特征交互） | 双向（统一注意力） |
+| 参数效率 | 模块独立，参数冗余 | 共享+独有混合参数化 |
+| 推理优化 | 难以应用 KV Cache | 跨请求 KV Cache |
+| 扩展性 | 受限于模块碎片化 | 金字塔堆叠统一扩展 |
+| 部署复杂度 | 多模块独立部署 | 单一模型端到端 |
+
+## 常见问题与易错点
+
+1. **混合参数化的区分**：序列 Token 共享参数（因为语义同构），非序列 Token 独有参数（因为语义异构），两者不能混淆
+2. **因果注意力掩码**：序列部分用因果掩码，非序列部分用全连接掩码，需在 attention 计算时正确设置
+3. **KV Cache 的边界**：跨请求缓存仅适用于同一用户的序列 Token，非序列 Token 随候选商品变化需重新计算
+
+## 学习总结
+
+OneTrans 代表了推荐系统精排模型从"分治"到"统一"的架构演进方向。其核心创新在于混合参数化策略（共享+独有）和跨请求 KV Cache，使一个 Transformer 同时高效处理序列建模和特征交互。这种统一架构不仅提升了模型效果，还为后续的模型扩展（如 TokenMixer-Large 的千亿参数）奠定了基础。
+
+# 核心数学公式
+
+## 1. 统一注意力公式
+
+OneTrans 将序列建模和特征交互统一到一个注意力框架中。设序列 Token 集合为 $S = \{s_1, \ldots, s_L\}$，非序列 Token 集合为 $N = \{n_1, \ldots, n_M\}$，统一注意力计算为：
+
+$$
+\text{Attention}(Q, K, V) = \text{Softmax}\left(\frac{QK^T}{\sqrt{d_k}} + M_{mask}\right) V
+$$
+
+其中混合参数化体现在 $Q$、$K$、$V$ 的投影矩阵上：
+
+- 序列 Token $s_i$：$Q_{s_i} = s_i W_Q^{seq}$，$K_{s_i} = s_i W_K^{seq}$，$V_{s_i} = s_i W_V^{seq}$（共享参数）
+- 非序列 Token $n_j$：$Q_{n_j} = n_j W_Q^{n_j}$，$K_{n_j} = n_j W_K^{n_j}$，$V_{n_j} = n_j W_V^{n_j}$（独有参数）
+
+## 2. 因果注意力掩码
+
+OneTrans 的注意力掩码矩阵 $M_{mask}$ 定义如下：
+
+$$
+M_{mask}[i][j] = \begin{cases} 0 & \text{if } i, j \in S \text{ and } j \leq i \quad \text{(序列内因果)} \\ 0 & \text{if } i \in N, j \in S \quad \text{(非序列可看全部序列)} \\ 0 & \text{if } i, j \in N \text{ and } j \leq i \quad \text{(非序列间因果)} \\ -\infty & \text{otherwise} \quad \text{(屏蔽)} \end{cases}
+$$
+
+这种设计确保了：序列 Token 之间遵循因果性（不能"看到未来"）；非序列 Token 可以看到所有序列 Token（实现双向信息流）；非序列 Token 之间同样遵循因果性。
+
+## 3. 跨特征注意力计算
+
+非序列 Token $n_j$ 对序列信息和非序列信息的注意力聚合：
+
+$$
+n_j' = \sum_{k=1}^{L} \alpha_{jk}^{seq} V_{s_k} + \sum_{k=1}^{j} \alpha_{jk}^{nonseq} V_{n_k}
+$$
+
+其中注意力权重：
+
+$$
+\alpha_{jk}^{seq} = \frac{\exp(q_{n_j}^T k_{s_k} / \sqrt{d_k})}{\sum_{m=1}^{L}\exp(q_{n_j}^T k_{s_m} / \sqrt{d_k}) + \sum_{m=1}^{j}\exp(q_{n_j}^T k_{n_m} / \sqrt{d_k})}
+$$
+
+## 4. 金字塔压缩的 Query 选择
+
+第 $l$ 层的金字塔压缩仅保留最近 $L_l$ 个序列 Token 作为 Query：
+
+$$
+L_l = \max\left(L_{min}, \left\lfloor L \cdot r^l \right\rfloor\right)
+$$
+
+其中 $r \in (0, 1)$ 是压缩率，$L_{min}$ 是最小保留长度。Key 和 Value 仍然基于完整序列计算，确保信息不丢失。
+
+## 5. 跨请求 KV 缓存的复杂度分析
+
+传统方案中，每个候选商品都需要独立计算序列注意力，复杂度为 $O(N_{cand} \cdot L \cdot d)$。
+
+OneTrans 的跨请求 KV 缓存将序列部分计算分摊：
+
+$$
+\text{总复杂度} = \underbrace{O(L \cdot d)}_{\text{序列 KV 缓存（一次）}} + N_{cand} \cdot \underbrace{O(M \cdot (L + M) \cdot d)}_{\text{非序列交叉注意力}}
+$$
+
+当 $M \ll L$ 时，每个候选商品的计算量从 $O(L^2 d)$ 降至 $O(MLd)$，实现了数量级的加速。

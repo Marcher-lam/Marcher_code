@@ -182,9 +182,9 @@ class ACERAgent:
         Q_rets = []
         for t in reversed(range(len(rewards))):
             Q_ret = rewards[t] + self.gamma * Q_ret * (1 - dones[t])
-            Q_rets.insert(0, Q_ret)
             rho_bar = min(1.0, ratios[t])
             Q_ret = values[t] + rho_bar * (Q_ret - values[t])
+            Q_rets.insert(0, Q_ret)
         return Q_rets
 
     def update(self, batch_size=32):
@@ -204,8 +204,9 @@ class ACERAgent:
         with torch.no_grad():
             avg_logits, _ = self.avg_net(states_t)
             avg_probs = F.softmax(avg_logits, dim=-1)
-            ratios = probs / (avg_probs + 1e-8)
-            ratios = torch.gather(ratios, 1, actions_t.unsqueeze(1)).squeeze(1)
+            mu_probs_t = torch.FloatTensor(np.exp(mu_lps))
+            pi_selected = torch.gather(probs, 1, actions_t.unsqueeze(1)).squeeze(1)
+            ratios = pi_selected / (mu_probs_t + 1e-8)
             trunc_ratios = torch.clamp(ratios, max=self.c)
 
         values = values.squeeze()
@@ -259,7 +260,13 @@ ACER 的关键可视化：
 
 ## 12. 学习总结
 
-ACER 是一个精心设计的 off-policy Actor-Critic 算法，通过截断重要性采样、Retrace 回报和信任域更新三个关键技术，实现了经验回放与策略梯度的高效结合。它在样本效率上显著优于 on-policy 方法（如 A2C），是实现大规模强化学习应用的重要参考。
+ACER 的核心贡献在于系统性地解决了策略梯度方法中"如何安全高效地利用旧数据"这一难题。它通过三项关键技术创新——截断重要性权重（控制方差）、Retrace($\lambda$) 回报（保证 Critic 收敛的 off-policy 多步估计）、信任域策略更新（限制策略变化幅度）——将经验回放与 on-policy 策略梯度无缝融合。
+
+ACER 最突出的优势是样本效率高，能反复利用历史交互数据，特别适合数据获取成本高的场景（如广告系统中的真实流量实验）。当需要在已有日志数据上训练或微调策略时，ACER 的 off-policy 能力使其比 PPO、A2C 等 on-policy 方法更有优势。
+
+在知识体系中，ACER 可视为 DQN（经验回放）和 PPO（信任域）思想的统一，同时与 SARSA、Q-learning 等时序差分方法有深厚的理论联系。理解 ACER 后再学习 SAC、TD3 等现代 off-policy 算法会更加顺畅。
+
+工业实践中 ACER 的实现复杂度较高，需同时维护策略网络、价值网络和平均策略网络。如果项目资源有限，可优先考虑 SAC 作为更简洁的 off-policy 替代方案。
 
 ## 13. 练习题与思考题
 

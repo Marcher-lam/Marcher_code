@@ -280,3 +280,101 @@ print(f"安全除法: {safe_div}")
 3. 学习混合精度训练的原理与安全实践
 4. 建立系统化的 NaN 调试流程
 5. 研究数值稳定性的理论分析（Lipschitz 连续性等）
+
+# 十、NaN 问题的数学分析
+
+## 10.1 浮点数溢出与下溢的数学本质
+
+IEEE 754 浮点数表示范围为：
+
+$$x = (-1)^s \times 2^{e-127} \times (1 + \frac{m}{2^{23}})$$
+
+| 精度 | 范围 | 最小正值 | 最大值 |
+|------|------|---------|--------|
+| FP32 | $\pm 3.4 \times 10^{38}$ | $1.2 \times 10^{-38}$ | $3.4 \times 10^{38}$ |
+| FP16 | $\pm 6.5 \times 10^{4}$ | $6.1 \times 10^{-5}$ | $6.5 \times 10^{4}$ |
+| BF16 | $\pm 3.4 \times 10^{38}$ | $1.2 \times 10^{-38}$ | $3.4 \times 10^{38}$ |
+
+**上溢（Overflow）**：当 $|x| > \text{max\_value}$ 时，结果为 $\pm\infty$，后续计算产生 NaN。
+
+**下溢（Underflow）**：当 $0 < |x| < \text{min\_positive}$ 时，结果为 0（精度丢失）。连续下溢导致 $0 \times \infty = \text{NaN}$。
+
+## 10.2 常见运算的数值不稳定性分析
+
+### Softmax 溢出
+
+标准 Softmax 计算中，$e^{x_i}$ 在 FP16 下当 $x_i > 11$ 即溢出：
+
+$$\text{Softmax}(x_i) = \frac{e^{x_i}}{\sum_j e^{x_j}}$$
+
+**数值稳定版本**：
+
+$$\text{SafeSoftmax}(x_i) = \frac{e^{x_i - \max(x)}}{\sum_j e^{x_j - \max(x)}}$$
+
+减去最大值确保指数运算的输入 $\leq 0$，避免溢出。
+
+### Log-Sum-Exp 溢出
+
+$$\log \sum_i e^{x_i} = \max(x) + \log \sum_i e^{x_i - \max(x)}$$
+
+### 梯度爆炸的数学分析
+
+以 $L$ 层全连接网络为例，反向传播中梯度通过链式法则连乘：
+
+$$\frac{\partial \mathcal{L}}{\partial W_1} = \frac{\partial \mathcal{L}}{\partial y_L} \prod_{l=2}^{L} W_l \cdot \sigma'(z_l)$$
+
+若 $\|W_l\| > 1$ 且 $\sigma'(z_l)$ 不够小，则梯度范数指数增长：
+
+$$\left\|\frac{\partial \mathcal{L}}{\partial W_1}\right\| \sim O(\|W\|^L)$$
+
+当 $L=12, \|W\|=2$ 时，梯度范数达到 $2^{12} = 4096$ 倍，极易溢出。
+
+### BatchNorm / LayerNorm 的除零风险
+
+$$\hat{x}_i = \frac{x_i - \mu}{\sqrt{\sigma^2 + \epsilon}}$$
+
+当 $\epsilon$ 过小且 $\sigma^2 \to 0$ 时，分母趋近于零。推荐 $\epsilon \geq 10^{-5}$。
+
+## 10.3 调试策略对比
+
+| 策略 | 原理 | 优点 | 缺点 | 适用场景 |
+|------|------|------|------|---------|
+| Hook 监控 | 注册前向/反向 Hook 检查每层输出 | 定位精确，信息丰富 | 代码侵入性强，降低训练速度 | 开发调试阶段 |
+| 梯度裁剪 | $\|g\| \leq C$ 限制梯度范数 | 实现简单，通用性强 | 可能限制模型学习能力 | 通用防护 |
+| 混合精度 + GradScaler | FP16 前向 + FP32 梯度缩放 | 加速训练 + 防溢出 | 需要额外显存 | GPU 训练标配 |
+| 数值安全算子 | 用 log_softmax 替代 softmax + log | 根治数值问题 | 需逐个替换 | 关键计算路径 |
+| NaN 检测回调 | 检测到 NaN 时跳过 batch 或降低学习率 | 自动恢复训练 | 可能掩盖根本问题 | 生产环境兜底 |
+| 权重初始化检查 | Xavier/He 初始化确保初始梯度稳定 | 预防性措施 | 无法覆盖所有情况 | 模型构建阶段 |
+
+## 10.4 不同修复方案的优缺点
+
+### 梯度裁剪（Gradient Clipping）
+
+$$g' = \begin{cases} g & \text{if } \|g\| \leq C \\ \frac{C \cdot g}{\|g\|} & \text{if } \|g\| > C \end{cases}$$
+
+**优点**：一行代码实现（`clip_grad_norm_`），对所有梯度爆炸问题有效。
+**缺点**：裁剪阈值 $C$ 需要调优；过小会限制模型学习长程依赖；不解决根因（可能是数据或模型问题）。
+
+### 混合精度训练（Mixed Precision）
+
+**优点**：训练速度提升 2-3 倍；显存占用减半。
+**缺点**：FP16 精度范围小（最大 65504），需要 GradScaler 配合；某些操作（如 reduction）必须在 FP32 下进行。
+
+### 数值安全替换
+
+| 不安全操作 | 安全替换 | 数学等价性 |
+|-----------|---------|-----------|
+| `log(softmax(x))` | `log_softmax(x)` | 完全等价，数值更稳定 |
+| `exp(x) / sum(exp(x))` | `softmax(x - max(x))` | 完全等价 |
+| `x / y` | `x / (y + eps)` | 近似，eps 通常 $10^{-8}$ |
+| `log(x)` | `log(x + eps)` 或 `log1p(x)` | 近似 |
+| `sqrt(x)` | `sqrt(x + eps)` | 近似 |
+
+### 推荐系统的特殊考量
+
+在推荐系统中，NaN 问题常出现在以下场景：
+
+1. **Embedding 查找越界**：特征 ID 超出 Embedding 表范围，需要 `clamp` 限制
+2. **CTR 预估中的 log 溢出**：`log(p)` 当 $p \to 0$ 时为 $-\infty$，使用 `log(p + eps)`
+3. **Attention 中的除零**：序列长度为 0 时 $\sqrt{d_k}$ 正常但 sum 为 0，需 mask 处理
+4. **温度参数不当**：知识蒸馏中温度 $T$ 过小导致 logits 溢出

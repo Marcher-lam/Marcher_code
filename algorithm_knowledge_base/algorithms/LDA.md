@@ -1,572 +1,725 @@
-
 # LDA 学习文档
 
+> Latent Dirichlet Allocation，潜在狄利克雷分配，用于主题建模的概率生成模型。
+
+---
+
 ## 1. 算法基础认知
+
 ### 1.1 一句话定义
-LDA（Linear Discriminant Analysis，线性判别分析）是一种有监督的降维与分类算法，通过寻找一个投影方向，使得类间散度最大、类内散度最小，从而实现最优分类。
+
+LDA（Latent Dirichlet Allocation）是2003年Blei等人提出的三层贝叶斯概率模型，用于对离散数据（如文档集合）进行主题建模，将文档表示为潜在主题的混合分布。
 
 ### 1.2 直觉类比
-想象你在二维平面上有两类点（一类圆点、一类星点），你希望找到一条直线（投影方向），使得把点投影到这条直线上后，两类点能够尽可能分开，同时每类点内部不要散得太开。
+
+将LDA想象为**图书馆的图书分类**：每本书记载了不同主题的内容（词汇分布），每个书架代表一个主题（主题分布），而图书管理员（贝叶斯推理）需要同时推断书架的排列方式和每本书的主题分配。
 
 ### 1.3 历史背景
-LDA由英国统计学家Ronald Fisher于1936年提出，最初用于解决二分类问题。1971年，Rao进一步推广到多分类情况。LDA是模式识别领域最经典的线性降维方法之一。
+
+- **1999年**：Probabilistic LSI提出
+- **2003年**：LDA正式发表（Blei, Ng, Jordan）
+- **2006年**：Correlated Topic Models
+- **2010s**：Online LDA、Stream LDA
+- **现在**：NLP、推荐系统广泛使用
 
 ### 1.4 算法定位
-- 类型：监督学习
-- 输出：连续值（投影后的坐标）或离散类别
-- 模型类别：参数模型（线性模型）
+
+- **类型**：概率生成模型 -> 主题建模
+- **输出**：文档-主题分布、主题-词分布
+- **模型类型**：无监督学习/生成模型
+- **核心创新**：狄利克雷先验
 
 ### 1.5 前置知识
-- 线性代数（矩阵运算、特征值分解）
-- 概率统计（均值、方差、协方差）
-- Python 编程（NumPy、scikit-learn）
+
+- 概率论基础：贝叶斯定理、分布
+- 概率图模型：有向图、因子图
+- 变分推断：EM算法基础
+- 文本处理：词袋模型
+
+---
 
 ## 2. 核心原理
+
 ### 2.1 核心思想
-LDA的核心思想是"类间分离、类内紧凑"——寻找一个投影方向，使得投影后不同类别的中心距离尽可能大（类间散度大），同时各类别内部的方差尽可能小（类内散度小）。
 
-### 2.2 工作流程
-1. 计算每个类别的均值向量
-2. 计算类内散度矩阵（within-class scatter matrix）
-3. 计算类间散度矩阵（between-class scatter matrix）
-4. 求解广义特征值问题 $S_b w = \lambda S_w w$
-5. 选择前k个最大特征值对应的特征向量作为投影方向
-6. 将数据投影到这些方向上
+LDA的核心思想是将文档表示为主题的混合，同时每个主题是词汇的分布。
 
-### 2.3 关键概念解释
-- **类内散度矩阵 $S_w$**：衡量同一类别内数据分散程度的矩阵
-- **类间散度矩阵 $S_b$**：衡量不同类别中心之间距离的矩阵
-- **广义特征值分解**：求解 $(S_w^{-1}S_b)w = \lambda w$
-- **Fisher判别准则**：最大化 $\frac{w^T S_b w}{w^T S_w w}$
+**生成过程**（文档d）：
+1. 从主题分布 $\theta_d \sim \text{Dir}(\alpha)$ 采样主题混合
+2. 对每个词 $w_n$：
+   - 从 $z_n \sim \text{Multinomial}(theta_d)$ 采样主题
+   - 从 $w_n \sim \text{Multinomial}(\beta_{z_n})$ 采样词汇
 
-### 2.4 几何解释
-从几何角度看，LDA寻找的是数据在特征空间中的一组正交方向，这些方向能够最大程度地保留区分不同类别的信息。投影后的数据在同一类别内更紧凑，在不同类别间更分离。
+### 2.2 模型参数
+
+| 参数 | 说明 | 维度 |
+|------|------|------|
+| $\alpha$ | 主题分布的狄利克雷先验 | K |
+| $\beta$ | 主题-词分布 | K×V |
+| $\theta$ | 文档-主题分布 | D×K |
+| $\phi$ | 主题-词分布（变量） | K×V |
+| $z$ | 主题分配 | D×N |
+| $w$ | 观测词汇 | D×N |
+
+### 2.3 概率图模型
+
+LDA的概率图模型（三层）：
+```
+α → θ_d → z_dn → w_dn
+          ↑
+β → φ_z_dn
+```
+
+### 2.4 与其他模型对比
+
+| 模型 | 先验 | 特点 |
+|------|------|------|
+| LSI | 高斯 | 线性、连续 |
+| pLSA | 无先验 | 不完整生成 |
+| LDA | 狄利克雷 | 完整贝叶斯 |
+
+---
 
 ## 3. 数学公式与推导
+
 ### 3.1 符号约定
+
 | 符号 | 含义 |
 |------|------|
-| $X$ | 数据矩阵 $(n \times d)$ |
-| $y$ | 类别标签 |
-| $c$ | 类别数量 |
-| $n_i$ | 第i类的样本数 |
-| $\mu_i$ | 第i类的均值向量 |
-| $\mu$ | 总体均值向量 |
-| $S_w$ | 类内散度矩阵 |
-| $S_b$ | 类间散度矩阵 |
-| $w$ | 投影方向向量 |
+| D | 文档数 |
+| K | 主题数 |
+| V | 词汇数 |
+| N_d | 文档d的长度 |
+| $\alpha$ | 超参数（主题先验） |
+| $\beta$ | 超参数（词汇先验） |
+| $\theta_d$ | 文档d的主题分布 |
+| $\phi_k$ | 主题k的词汇分布 |
+| $z_{d,n}$ | 文档d第n词的 topic |
+| $w_{d,n}$ | 文档d第n词 |
 
-### 3.2 问题形式化
-寻找投影方向 $w$，使得Fisher判别准则最大化：
-$$\max_w J(w) = \frac{w^T S_b w}{w^T S_w w}$$
+### 3.2 概率定义
 
-### 3.3 目标函数
-$$J(w) = \frac{\text{类间散度}}{\text{类内散度}} = \frac{w^T S_b w}{w^T S_w w}$$
+**联合概率**：
+$$
+p(w, z, \theta, \phi; \alpha, \beta) = \prod_{k=1}^K p(\phi_k; \beta) \prod_{d=1}^D p(\theta_d; \alpha) \prod_{n=1}^{N_d} p(z_{d,n}|\theta_d) p(w_{d,n}|z_{d,n}, \phi)
+$$
 
-### 3.4 推导过程
-**Step 1: 计算均值向量**
-- 类别i的均值：$\mu_i = \frac{1}{n_i}\sum_{x \in C_i} x$
-- 总体均值：$\mu = \frac{1}{n}\sum_{i=1}^{n} x_i$
+**似然函数**：
+$$
+p(w; \alpha, \beta) = \int \int \sum_z p(w, z, \theta, \phi; \alpha, \beta) d\theta d\phi
+$$
 
-**Step 2: 计算类内散度矩阵**
-$$S_w = \sum_{i=1}^{c} \sum_{x \in C_i} (x - \mu_i)(x - \mu_i)^T$$
+### 3.3 变分推断
 
-**Step 3: 计算类间散度矩阵**
-$$S_b = \sum_{i=1}^{c} n_i (\mu_i - \mu)(\mu_i - \mu)^T$$
+**变分分布**（近似后验）：
+$$
+q(z, \theta, \phi) = \prod_k q(\phi_k) \prod_d q(\theta_d) \prod_n q(z_{d,n})
+$$
 
-**Step 4: 广义特征值分解**
-求解 $S_b w = \lambda S_w w$，等价于求 $(S_w^{-1}S_b)w = \lambda w$
+**变分目标**：
+$$
+\log p(w) = \log \int \int \sum_z p(w, z, \theta, \phi) d\theta d\phi
+$$
 
-**Step 5: 选择投影方向**
-选择前k个最大特征值对应的特征向量（k ≤ c-1）
+使用ELBO：
+$$
+\mathcal{L} = \mathbb{E}_q[\log p(w, z, \theta, \phi)] - \mathbb{E}_q[\log q(z, \theta, \phi)]
+$$
 
-### 3.5 最终解/算法步骤
-1. 计算类内散度矩阵 $S_w$
-2. 计算类间散度矩阵 $S_b$
-3. 计算矩阵 $S_w^{-1}S_b$
-4. 求特征值分解，取前k个最大特征值对应的特征向量
-5. 投影数据：$X_{new} = X W$
+### 3.4 变分参数更新
+
+**gamma更新**（文档-主题参数）：
+$$
+\gamma_{d,k} \propto \exp(\psi(\alpha_k) + \sum_n \phi_{w_{d,n},k})
+$$
+
+**phi更新**（词-主题参数）：
+$$
+\phi_{d,n,k} \propto \exp(\psi(\gamma_{d,k}) + \psi(\beta_k) - \psi(\sum_j \beta_j))
+$$
+
+### 3.5 EM算法
+
+**E步**：固定 $\alpha, \beta$，更新 $\gamma, \phi$
+
+**M步**：最大化期望，更新 $\alpha, \beta$
+
+---
 
 ## 4. 训练过程讲解
+
 ### 4.1 数据预处理
-- 特征标准化：使用StandardScaler确保各特征尺度一致
-- 缺失值处理：删除或填充缺失值
-- 类别平衡：LDA对类别不平衡敏感，需注意
 
-### 4.2 参数初始化
-- 投影维度n_components：默认为min(n_classes-1, n_features)
-- 求解器：'svd'（推荐，数值稳定）、'eigen'（精确但可能不稳定）
+```python
+import numpy as np
+from collections import Counter
 
-### 4.3 迭代过程
-LDA通过闭式解求解，无需迭代。对于大规模数据，可使用随机SVD加速。
+def preprocess_documents(documents):
+    """文档预处理"""
+    
+    # 词汇表构建
+    vocab = set()
+    for doc in documents:
+        vocab.update(doc.split())
+    vocab = list(vocab)
+    word2idx = {w: i for i, w in enumerate(vocab)}
+    
+    # 词索引化
+    docs = [[word2idx[w] for doc in documents for w in doc.split()]
+    
+    return docs, vocab, word2idx
 
-### 4.4 收敛条件
-由于使用闭式解，LDA一次性完成计算，无需迭代收敛。
 
-### 4.5 超参数及推荐范围
-- n_components: 1到min(c-1, d)（类别数减1维或特征维度）
-- solver: 'svd'（默认，推荐）或 'eigen'
-- shrinkage: None或'auto'（正则化参数）
+def compute_doc_term_matrix(documents, word2idx):
+    """文档-词矩阵"""
+    
+    D = len(documents)
+    V = len(word2idx)
+    
+    doc_term = np.zeros((D, V))
+    
+    for d, doc in enumerate(documents):
+        for w in doc.split():
+            if w in word2idx:
+                doc_term[d, word2idx[w]] += 1
+    
+    return doc_term
+```
+
+### 4.2 LDA模型实现
+
+```python
+import numpy as np
+from scipy.special import gammaln, digamma
+
+class LDA:
+    """LDA模型实现"""
+    
+    def __init__(self, K=10, alpha=0.1, beta=0.1, max_iter=100):
+        self.K = K
+        self.alpha = alpha
+        self.beta = beta
+        self.max_iter = max_iter
+    
+    def _init_params(self, D, V):
+        """初始化参数"""
+        
+        # 变分参数
+        self.gamma = np.random.gamma(100, 1./100, (D, self.K))
+        self.phi = np.random.dirichlet(np.ones(V) * self.beta, (D, self.K))
+        
+        # 模型参数
+        self.theta = np.zeros((D, self.K))
+        self.beta_mat = np.random.dirichlet(np.ones(V) * self.beta, (self.K, V))
+    
+    def fit(self, documents):
+        """训练"""
+        
+        D = len(documents)
+        V = max(max(doc) for doc in documents) + 1
+        
+        self._init_params(D, V)
+        
+        # 更新gamma和phi
+        for iteration in range(self.max_iter):
+            # E步：更新变分参数
+            self._update_gamma()
+            self._update_phi(documents, V)
+            
+            # M步：更新模型参数
+            self._update_beta(documents, D, V)
+            
+            # 检查收敛
+            if iteration % 10 == 0:
+                perplexity = self._compute_perplexity(documents)
+                print(f"Iter {iteration}, Perplexity: {perplexity:.2f}")
+    
+    def _update_gamma(self):
+        """更新gamma（文档-主题参数）"""
+        
+        self.theta = self.gamma / self.gamma.sum(1, keepdims=True)
+        
+        for d in range(len(self.gamma)):
+            for k in range(self.K):
+                self.gamma[d, k] = self.alpha + self.phi[d, :, k].sum()
+    
+    def _update_phi(self, documents, V):
+        """更新phi（词-主题参数）"""
+        
+        for d, doc in enumerate(documents):
+            word_counts = Counter(doc)
+            
+            for k in range(self.K):
+                log_phi = np.log(self.theta[d, k) + np.log(self.beta_mat[k, :])
+                log_phi = np.exp(log_phi - log_phi.max())
+                log_phi = log_phi / log_phi.sum()
+                
+                for w, c in word_counts.items():
+                    self.phi[d, w, k] = log_phi[w] * c
+    
+    def _update_beta(self, documents, D, V):
+        """更新beta（主题-词分布）"""
+        
+        for k in range(self.K):
+            for v in range(V):
+                self.beta_mat[k, v] = self.beta
+                for d, doc in enumerate(documents):
+                    self.beta_mat[k, v] += self.phi[d, v, k]
+            
+            self.beta_mat[k, :] = self.beta_mat[k, :] / self.beta_mat[k, :].sum()
+    
+    def _compute_perplexity(self, documents):
+        """计算困惑度"""
+        
+        ll = 0
+        total_words = 0
+        
+        for d, doc in enumerate(documents):
+            word_counts = Counter(doc)
+            
+            for w, c in word_counts.items():
+                p_w = np.dot(self.phi[d, w, :], self.theta[d, :])
+                ll += c * np.log(p_w + 1e-10)
+                total_words += c
+        
+        return np.exp(-ll / total_words)
+    
+    def get_topics(self, n_top_words=10):
+        """获取主题"""
+        
+        topics = []
+        
+        for k in range(self.K):
+            top_indices = self.beta_mat[k, :].argsort()[::-1][:n_top_words]
+            topics.append(top_indices)
+        
+        return topics
+```
+
+### 4.3 吉布斯采样实现
+
+```python
+class LDAGibbs:
+    """使用吉布斯采样的LDA"""
+    
+    def __init__(self, K=10, alpha=0.1, beta=0.01, max_iter=100):
+        self.K = K
+        self.alpha = alpha
+        self.beta = beta
+        self.max_iter = max_iter
+    
+    def fit(self, documents):
+        """训练"""
+        
+        D = len(documents)
+        V = max(max(doc) for doc in documents) + 1
+        
+        # 初始化主题分配
+        self.z = [[np.random.randint(self.K) for _ in doc] for doc in documents]
+        
+        # 计数统计
+        self.n_dk = np.zeros((D, self.K)) + self.alpha
+        self.n_kv = np.zeros((self.K, V)) + self.beta
+        self.n_k = np.zeros(self.K) + V * self.beta
+        
+        for iteration in range(self.max_iter):
+            # 采样主题
+            for d, doc in enumerate(documents):
+                for n, w in enumerate(doc):
+                    k_old = self.z[d][n]
+                    self.n_dk[d, k_old] -= 1
+                    self.n_kv[k_old, w] -= 1
+                    self.n_k[k_old] -= 1
+                    
+                    # 采样新主题
+                    probs = self.n_dk[d] * self.n_kv[:, w] / self.n_k
+                    probs = probs / probs.sum()
+                    k_new = np.random.choice(self.K, p=probs)
+                    
+                    self.z[d][n] = k_new
+                    self.n_dk[d, k_new] += 1
+                    self.n_kv[k_new, w] += 1
+                    self.n_k[k_new] += 1
+            
+            if iteration % 10 == 0:
+                print(f"Iter {iteration}")
+    
+    def get_topics(self, n_words=10):
+        """获取主题"""
+        
+        beta_normalized = self.n_kv / self.n_k[:, np.newaxis]
+        
+        topics = []
+        
+        for k in range(self.K):
+            top_indices = beta_normalized[k, :].argsort()[::-1][:n_words]
+            topics.append(top_indices)
+        
+        return topics
+```
+
+### 4.4 参数推荐
+
+| 参数 | 作用 | 推荐值 |
+|------|------|--------|
+| K | 主题数 | 10-100 |
+| alpha | 主题先验 | 0.1-1.0 |
+| beta | 词先验 | 0.01-0.1 |
+| max_iter | 最大迭代 | 50-200 |
+
+---
 
 ## 5. 应用场景
+
 ### 5.1 典型应用
-- **人脸识别**：将人脸图像降维后进行分类
-- **客户分类**：根据客户特征进行分类
-- **医学诊断**：根据病人指标进行疾病分类
-- **文本分类**：降维后进行文本类别预测
 
-### 5.2 适用数据特征
-- 类别间具有较好的线性可分性
-- 各类别呈高斯分布且协方差矩阵相似
-- 特征维度不太高
+- **主题建模**：文档主题发现
+- **文本分类**：无监督分类
+- **推荐系统**：文档推荐
+- **信息检索**：主题相似度
 
-### 5.3 不适用场景
-- 类别间非线性可分
-- 各类别协方差矩阵差异较大
-- 样本量远小于特征维度（需正则化）
-- 类别数大于样本数
+### 5.2 适用数据
+
+- 文档集合
+- 短文本（微博、评论）
+- 多文档关联
+
+---
 
 ## 6. 优缺点分析
+
 ### 6.1 优点
-- 有监督降维，同时考虑类别信息
-- 闭式解，计算效率高
-- 可解释性强，投影方向有明确含义
-- 在线性可分数据上效果好
+
+| 优点 | 说明 |
+|------|------|
+| ���解��� | 主题语义清晰 |
+| 可扩展 | 词汇可扩展 |
+| 生成式 | 可生成新文档 |
+| 灵活性 | 可加约束 |
 
 ### 6.2 缺点
-- 假设数据呈高斯分布
-- 假设各类别协方差矩阵相等
-- 只能学到线性投影
-- 最多投影到c-1维
 
-### 6.3 与同类算法对比
+| 缺点 | 说明 |
+|------|------|
+| 计算 | 推理慢 |
+| 收敛 | 易局部最优 |
+| 选择 | K需调参 |
+| 稀疏 | 对短文本效果差 |
 
-| 算法 | 优点 | 缺点 | 适用场景 |
-|------|------|------|----------|
-| LDA | 有监督，效果稳定 | 线性假设 | 线性可分数据 |
-| PCA | 无监督，计算快 | 无类别信息 | 一般降维 |
-| QDA | 非线性决策边界 | 参数多 | 非线性分类 |
-| 逻辑回归 | 概率输出 | 需迭代 | 分类概率预测 |
+---
 
 ## 7. 调库实现
-### 7.1 环境准备
-```bash
-pip install numpy pandas matplotlib scikit-learn
-```
 
-### 7.2 完整代码示例
+### 7.1 scikit-learn
+
 ```python
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
-from sklearn.datasets import make_classification
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import accuracy_score, classification_report
+from sklearn.decomposition import LatentDirichletAllocation
 
-# 1. 生成示例数据（3类分类问题）
-X, y = make_classification(n_samples=300, n_features=2, n_classes=3,
-                           n_informative=2, n_redundant=0,
-                           n_clusters_per_class=1, random_state=42)
-
-# 2. 数据标准化
-scaler = StandardScaler()
-X_scaled = scaler.fit_transform(X)
-
-# 3. 划分训练/测试集
-X_train, X_test, y_train, y_test = train_test_split(
-    X_scaled, y, test_size=0.2, random_state=42
-)
-
-# 4. 创建LDA模型并训练
-lda = LinearDiscriminantAnalysis(n_components=2)
-lda.fit(X_train, y_train)
-
-# 5. 预测
-y_pred = lda.predict(X_test)
-
-# 6. 评估
-print('=== LDA分类结果 ===')
-print(f'训练集准确率: {lda.score(X_train, y_train):.4f}')
-print(f'测试集准确率: {accuracy_score(y_test, y_pred):.4f}')
-print('\n分类报告:')
-print(classification_report(y_test, y_pred))
-
-# 7. 可视化决策边界
-def plot_decision_boundary(X, y, model):
-    h = 0.02
-    x_min, x_max = X[:, 0].min() - 1, X[:, 0].max() + 1
-    y_min, y_max = X[:, 1].min() - 1, X[:, 1].max() + 1
-    xx, yy = np.meshgrid(np.arange(x_min, x_max, h),
-                         np.arange(y_min, y_max, h))
-    Z = model.predict(np.c_[xx.ravel(), yy.ravel()])
-    Z = Z.reshape(xx.shape)
+def use_sklearn_lda():
+    """使用sklearn的LDA"""
     
-    plt.figure(figsize=(10, 8))
-    plt.contourf(xx, yy, Z, alpha=0.3, cmap='viridis')
-    plt.scatter(X[:, 0], X[:, 1], c=y, cmap='viridis', alpha=0.8)
-    plt.xlabel('特征1')
-    plt.ylabel('特征2')
-    plt.title('LDA决策边界')
-    plt.colorbar()
-    plt.show()
-
-plot_decision_boundary(X_scaled, y, lda)
-
-# 8. 降维可视化
-lda_2d = LinearDiscriminantAnalysis(n_components=2)
-X_lda = lda_2d.fit_transform(X_scaled, y)
-
-plt.figure(figsize=(10, 5))
-plt.subplot(1, 2, 1)
-plt.scatter(X_scaled[:, 0], X_scaled[:, 1], c=y, cmap='viridis', alpha=0.6)
-plt.title('原始数据')
-
-plt.subplot(1, 2, 2)
-plt.scatter(X_lda[:, 0], X_lda[:, 1], c=y, cmap='viridis', alpha=0.6)
-plt.title('LDA降维后')
-plt.xlabel('LDA成分1')
-plt.xlabel('LDA成分2')
-plt.tight_layout()
-plt.show()
-
-print(f'解释方差比: {lda_2d.explained_variance_ratio_}')
+    from sklearn.feature_extraction.text import CountVectorizer
+    
+    documents = [
+        "This is a document about machine learning",
+        "Machine learning is a type of artificial intelligence",
+        "Natural language processing is related to machine learning",
+        "Deep learning is a subset of machine learning",
+    ]
+    
+    # 向量化
+    vectorizer = CountVectorizer(max_features=1000)
+    X = vectorizer.fit_transform(documents)
+    
+    # LDA
+    lda = LatentDirichletAllocation(
+        n_components=2,
+        random_state=42,
+        max_iter=10
+    )
+    
+    lda.fit(X)
+    
+    # 主题
+    feature_names = vectorizer.get_feature_names()
+    
+    for topic_idx, topic in enumerate(lda.components_):
+        top_words = [feature_names[i] for i in topic.argsort()[:-6:-1]]
+        print(f"Topic {topic_idx}: {', '.join(top_words)}")
+    
+    return lda, vectorizer
 ```
 
-### 7.3 运行结果示例
+### 7.2 Gensim
+
+```python
+def use_gensim_lda():
+    """使用Gensim的LDA"""
+    
+    from gensim import corpora
+    from gensim.models import LdaModel
+    
+    documents = [
+        ["This", "is", "a", "document", "about", "machine", "learning"],
+        ["Machine", "learning", "is", "a", "type", "of", "artificial", "intelligence"],
+        ["Natural", "language", "processing", "is", "related", "to", "machine", "learning"],
+        ["Deep", "learning", "is", "a", "subset", "of", "machine", "learning"],
+    ]
+    
+    # 字典
+    dictionary = corpora.Dictionary(documents)
+    
+    # 语料库
+    corpus = [dictionary.doc2bow(doc) for doc in documents]
+    
+    # LDA
+    lda = LdaModel(corpus, id2word=dictionary, num_topics=2)
+    
+    # 主题
+    for topic in lda.print_topics():
+        print(topic)
+    
+    return lda
 ```
-=== LDA分类结果 ===
-训练集准确率: 0.9542
-测试集准确率: 0.9333
 
-分类报告:
-              precision    recall  f1-score   support
-
-           0       0.94      0.94      0.94        20
-           1       0.90      0.95      0.95        20
-           2       0.95      0.90      0.92        20
-
-    accuracy                           0.93        60
-   macro avg       0.93      0.93      0.93        60
-weighted avg       0.93      0.93      0.93        60
-
-解释方差比: [0.7  0.3]
-```
+---
 
 ## 8. 手工代码实现
-### 8.1 核心算法手写
+
+### 8.1 简化实现
+
 ```python
 import numpy as np
 
-class LDAManual:
-    """手工实现线性判别分析(LDA)"""
+class SimpleLDA:
+    """简化LDA（基于NMF近似）"""
     
-    def __init__(self, n_components=None):
-        self.n_components = n_components
-        self.means_ = None
-        self.scalings_ = None
-        self.explained_variance_ratio_ = None
+    def __init__(self, K=10):
+        self.K = K
+        self.components_ = None
+    
+    def fit(self, X):
+        """使用NMF近似"""
         
-    def fit(self, X, y):
-        """训练LDA模型"""
-        X = np.array(X)
-        y = np.array(y)
+        from sklearn.decomposition import NMF
         
-        n_samples, n_features = X.shape
-        classes = np.unique(y)
-        n_classes = len(classes)
+        nmf = NMF(n_components=self.K, random_state=42)
+        W = nmf.fit_transform(X)
+        H = nmf.components_
         
-        # 计算总体均值
-        overall_mean = X.mean(axis=0)
-        
-        # 计算类内散度矩阵
-        S_w = np.zeros((n_features, n_features))
-        # 计算类间散度矩阵
-        S_b = np.zeros((n_features, n_features))
-        
-        self.means_ = {}
-        
-        for c in classes:
-            X_c = X[y == c]
-            n_c = X_c.shape[0]
-            mean_c = X_c.mean(axis=0)
-            self.means_[c] = mean_c
-            
-            # 类内散度
-            X_c_centered = X_c - mean_c
-            S_w += X_c_centered.T @ X_c_centered
-            
-            # 类间散度
-            mean_diff = (mean_c - overall_mean).reshape(-1, 1)
-            S_b += n_c * (mean_diff @ mean_diff.T)
-        
-        # 求解广义特征值问题 S_b * w = λ * S_w * w
-        # 转化为 S_w^(-1) * S_b * w = λ * w
-        try:
-            S_w_inv = np.linalg.inv(S_w + 1e-6 * np.eye(n_features))
-        except:
-            S_w_inv = np.linalg.pinv(S_w)
-        
-        matrix = S_w_inv @ S_b
-        eigenvalues, eigenvectors = np.linalg.eig(matrix)
-        
-        # 取实部（特征值和特征向量可能是复数）
-        eigenvalues = np.real(eigenvalues)
-        eigenvectors = np.real(eigenvectors)
-        
-        # 按特征值降序排列
-        idx = np.argsort(eigenvalues)[::-1]
-        eigenvalues = eigenvalues[idx]
-        eigenvectors = eigenvectors[:, idx]
-        
-        # 确定投影维度
-        if self.n_components is None:
-            self.n_components = min(n_classes - 1, n_features)
-        
-        # 选择前n_components个特征向量
-        self.scalings_ = eigenvectors[:, :self.n_components]
-        self.explained_variance_ratio_ = eigenvalues[:self.n_components]
-        
-        # 归一化解释方差比
-        self.explained_variance_ratio_ = (
-            self.explained_variance_ratio_ / 
-            np.sum(self.explained_variance_ratio_)
-        )
+        # theta = W, phi = H
+        self.theta = W / W.sum(1, keepdims=True)
+        self.phi = H / H.sum(1, keepdims=True)
         
         return self
     
     def transform(self, X):
-        """投影数据"""
-        X = np.array(X)
-        return X @ self.scalings_
-    
-    def fit_transform(self, X, y):
-        """训练并投影"""
-        self.fit(X, y)
-        return self.transform(X)
-    
-    def predict(self, X):
-        """预测类别"""
-        X = np.array(X)
-        X_transformed = self.transform(X)
+        """推断主题"""
         
-        # 计算各类别在投影空间中的中心
-        classes = list(self.means_.keys())
-        class_centers = np.array([self.transform(self.means_[c].reshape(1, -1))[0] 
-                                   for c in classes])
+        from sklearn.decomposition import NMF
         
-        # 找最近的类别中心
-        predictions = []
-        for x in X_transformed:
-            distances = np.array([np.linalg.norm(x - center) for center in class_centers])
-            predictions.append(classes[np.argmin(distances)])
+        W = np.linalg.lstsq(self.phi.T, X.T, rcond=None)[0].T
+        W = np.maximum(W, 0)
+        W = W / W.sum(1, keepdims=True)
         
-        return np.array(predictions)
-
-# 测试手工实现
-if __name__ == '__main__':
-    from sklearn.datasets import make_classification
-    from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
-    from sklearn.preprocessing import StandardScaler
-    from sklearn.metrics import accuracy_score
-    
-    # 生成数据
-    X, y = make_classification(n_samples=300, n_features=2, n_classes=3,
-                               n_informative=2, n_redundant=0,
-                               n_clusters_per_class=1, random_state=42)
-    
-    # 标准化
-    scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(X)
-    
-    # 手工实现
-    lda_manual = LDAManual(n_components=2)
-    lda_manual.fit(X_scaled, y)
-    y_pred_manual = lda_manual.predict(X_scaled)
-    
-    # sklearn实现
-    lda_sklearn = LinearDiscriminantAnalysis()
-    lda_sklearn.fit(X_scaled, y)
-    y_pred_sklearn = lda_sklearn.predict(X_scaled)
-    
-    print('=== LDA手工实现 vs sklearn ===')
-    print(f'手工实现准确率: {accuracy_score(y, y_pred_manual):.4f}')
-    print(f'sklearn准确率: {accuracy_score(y, y_pred_sklearn):.4f}')
-    print(f'手工解释方差比: {lda_manual.explained_variance_ratio_}')
-    print(f'sklearn解释方差比: {lda_sklearn.explained_variance_ratio_}')
+        return W
 ```
 
-### 8.2 与调库结果对比
-| 指标 | 手工实现 | sklearn |
-|------|----------|---------|
-| 准确率 | 0.9333 | 0.9333 |
-| 解释方差比 | [0.70, 0.30] | [0.70, 0.30] |
-| 投影方向 | 相同 | 相同 |
+### 8.2 可视化主题
+
+```python
+import matplotlib.pyplot as plt
+
+def visualize_topics(lda, vocab, n_words=10):
+    """主题可视化"""
+    
+    topics = lda.components_
+    
+    fig, axes = plt.subplots(2, topics.shape[0]//2, figsize=(12, 8))
+    
+    for i, ax in enumerate(axes.flat):
+        if i < topics.shape[0]:
+            indices = topics[i, :].argsort()[::-1][:n_words]
+            words = [vocab[j] for j in indices]
+            probs = topics[i, indices]
+            
+            ax.barh(range(n_words), probs)
+            ax.set_yticks(range(n_words))
+            ax.set_yticklabels(words)
+            ax.set_title(f"Topic {i+1}")
+    
+    plt.tight_layout()
+    plt.savefig('topics.png', dpi=150)
+    plt.show()
+```
+
+---
 
 ## 9. 可视化与结果理解
-### 9.1 关键参数可视化
+
+### 9.1 主题分布
+
 ```python
-import numpy as np
-import matplotlib.pyplot as plt
-from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
-from sklearn.datasets import make_classification
-
-# 生成数据
-X, y = make_classification(n_samples=300, n_features=2, n_classes=3,
-                           n_informative=2, n_redundant=0,
-                           n_clusters_per_class=1, random_state=42)
-
-# 测试不同n_components
-fig, axes = plt.subplots(1, 2, figsize=(14, 5))
-
-for idx, n_comp in enumerate([1, 2]):
-    lda = LinearDiscriminantAnalysis(n_components=n_comp)
-    X_lda = lda.fit_transform(X, y)
+def plot_topic_distribution(lda):
+    """主题-词分布"""
     
-    ax = axes[idx]
-    scatter = ax.scatter(X_lda[:, 0], X_lda[:, 1] if n_comp > 1 else np.zeros(len(X_lda)), 
-                         c=y, cmap='viridis', alpha=0.6)
-    ax.set_xlabel('LDA成分1')
-    if n_comp > 1:
-        ax.set_ylabel('LDA成分2')
-    ax.set_title(f'n_components={n_comp}')
-    plt.colorbar(scatter, ax=ax)
-
-plt.tight_layout()
-plt.show()
+    topics = lda.components_
+    K = topics.shape[0]
+    
+    for k in range(K):
+        top_k = topics[k, :].argsort()[::-1][:10]
+        
+        print(f"Topic {k}:")
+        for idx in top_k:
+            print(f"  {idx}: {topics[k, idx]:.4f}")
 ```
 
-### 9.2 投影方向可视化
+### 9.2 文档-主题分布
+
 ```python
-import matplotlib.pyplot as plt
-import numpy as np
-
-# 可视化LDA投影方向
-lda = LinearDiscriminantAnalysis()
-lda.fit(X, y)
-
-plt.figure(figsize=(10, 5))
-plt.scatter(X[:, 0], X[:, 1], c=y, cmap='viridis', alpha=0.5)
-
-# 绘制LDA投影方向
-origin = np.mean(X, axis=0)
-for i, (val, vec) in enumerate(zip(lda.explained_variance_ratio_, 
-                                     lda.scalings_.T)):
-    plt.arrow(origin[0], origin[1], vec[0]*val*5, vec[1]*val*5,
-              head_width=0.1, head_length=0.05, fc='red', ec='red', alpha=0.8)
-
-plt.xlabel('特征1')
-plt.ylabel('特征2')
-plt.title('LDA投影方向')
-plt.show()
+def plot_doc_topic(lda, X):
+    """文档-主题分布"""
+    
+    doc_topic = lda.transform(X)
+    
+    plt.figure(figsize=(10, 6))
+    
+    plt.imshow(doc_topic.T, aspect='auto', cmap='viridis')
+    plt.colorbar()
+    plt.xlabel('Document')
+    plt.ylabel('Topic')
+    plt.title('Document-Topic Distribution')
+    plt.savefig('doc_topic.png', dpi=150)
+    plt.show()
 ```
 
-### 9.3 结果解读
-- 投影后各类别中心明显分离
-- 红色箭头表示LDA找到的投影方向
-- 箭头长度表示该方向的重要性（解释方差比）
+---
 
 ## 10. 模型评估
-### 10.1 评估指标选择
-- **准确率（Accuracy）**：正确分类比例
-- **精确率、召回率、F1**：各类别分类性能
-- **混淆矩阵**：详细分类结果
-- **解释方差比**：各投影方向的信息量
 
-### 10.2 交叉验证
+### 10.1 困惑度
+
 ```python
-from sklearn.model_selection import cross_val_score
-from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
-
-lda = LinearDiscriminantAnalysis()
-scores = cross_val_score(lda, X, y, cv=5, scoring='accuracy')
-
-print(f'5折交叉验证准确率: {scores.mean():.4f} ± {scores.std():.4f}')
+def compute_perplexity(lda, X):
+    """困惑度"""
+    
+    ll = 0
+    total = 0
+    
+    for d in range(X.shape[0]):
+        probs = lda.transform(X[d:d+1])
+        for w in range(X.shape[1]):
+            if X[d, w] > 0:
+                ll += X[d, w] * np.log(probs[0, :].dot(lda.components_[:, w]) + 1e-10)
+                total += X[d, w]
+    
+    return np.exp(-ll / total)
 ```
 
-### 10.3 超参数调优
+### 10.2 一致性
+
 ```python
-from sklearn.model_selection import GridSearchCV
-from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
-
-param_grid = {
-    'solver': ['svd', 'eigen'],
-    'shrinkage': [None, 'auto', 0.1, 0.5]
-}
-
-lda = LinearDiscriminantAnalysis()
-grid = GridSearchCV(lda, param_grid, cv=5, scoring='accuracy')
-grid.fit(X, y)
-
-print(f'最佳参数: {grid.best_params_}')
-print(f'最佳准确率: {grid.best_score_:.4f}')
+def compute_coherence(lda, texts, word2idx):
+    """主题一致性"""
+    
+    topics = lda.components_
+    
+    coherences = []
+    
+    for k in range(topics.shape[0]):
+        top_words = topics[k, :].argsort()[::-1][:10]
+        
+        coherence = 0
+        for i, w1 in enumerate(top_words):
+            for w2 in top_words[i+1:]:
+                coherence += np.log(1 + texts[:, w1].dot(texts[:, w2]))
+        
+        coherences.append(coherence)
+    
+    return np.mean(coherences)
 ```
+
+---
 
 ## 11. 常见问题与易错点
-### 11.1 数据层面常见错误
-- 类别不平衡导致分类偏向多数类
-- 未进行特征标准化
-- 样本量过小导致协方差矩阵估计不准
 
-### 11.2 模型层面常见错误
-- n_components设置超过c-1
-- 数据不满足高斯分布假设
-- 各类别协方差矩阵差异大
+### 11.1 主题数选择
 
-### 11.3 调参层面常见误区
-- 盲目追求高维投影
-- 忽视正则化参数shrinkage的作用
-- 未考虑类别先验概率
+**方法**：困惑度 + 主题一致性
+
+### 11.2 稀疏文档
+
+**方法**：添加先验或使用动态主题数
+
+---
 
 ## 12. 学习总结
-### 12.1 核心要点回顾
-- LDA是有监督降维方法，同时利用类别信息
-- 目标是最大化类间散度、最小化类内散度
-- 投影维度最多为c-1（类别数减1）
-- 使用广义特征值分解求解
 
-### 12.2 关键公式汇总
-- Fisher准则：$J(w) = \frac{w^T S_b w}{w^T S_w w}$
-- 类内散度：$S_w = \sum_i \sum_{x \in C_i} (x - \mu_i)(x - \mu_i)^T$
-- 类间散度：$S_b = \sum_i n_i (\mu_i - \mu)(\mu_i - \mu)^T$
+### 12.1 核心要点
 
-### 12.3 与前序/后续算法联系
-- **前置算法**：PCA（可作为LDA的预处理）、数据标准化
-- **后续算法**：QDA（非线性）、核LDA（非线性）、逻辑回归
+1. **三层模型**：文档-主题-词
+2. **狄利克雷**：先验分布
+3. **变分**：推断方法
+4. **生成**：完整模型
 
-## 13. 练习题与思考题与思考题
-### 13.1 基础练习题
-1. 简述LDA的核心思想。
-2. 为什么LDA最多只能投影到c-1维？
-3. 解释类内散度和类间散度的含义。
+### 12.2 进阶方向
 
-### 13.2 进阶思考题
-1. 如果两类数据的协方差矩阵差异很大，LDA效果会如何？
-2. LDA和逻辑回归有什么区别？各自适用场景？
+- **CTM**：关联主题模型
+- **DTM**：动态主题模型
 
-### 13.3 详细答案与解析
-1. **答案**：LDA的核心思想是"类间分离、类内紧凑"，通过寻找投影方向使得类间散度最大、类内散度最小。
-2. **答案**：类间散度矩阵 $S_b$ 是c个秩为1的矩阵之和，其秩最多为c-1，因此最多只能得到c-1个非零特征值。
-3. **答案**：类内散度衡量同一类别内数据的分散程度，类间散度衡量不同类别中心之间的距离。
+---
 
-## 14. 学习路径建议建议
-### 14.1 前置知识
-- 线性代数（矩阵运算、特征值分解）
-- 概率统计（均值、方差、协方差）
-- 基础机器学习概念
+## 13. 练习题与思考题
 
-### 14.2 平行算法
-- PCA（无监督降维）
-- QDA（二次判别分析）
-- 逻辑回归（分类）
+### 练习题
 
-### 14.3 进阶算法
-- 核LDA（Kernel LDA）
-- 增量LDA（Incremental LDA）
-- 深度判别分析
+**练习1**：LDA与NMF的区别
 
-### 14.4 推荐资源
-- 《Pattern Classification》- Duda, Hart & Stork
-- scikit-learn官方文档
-- Bishop《Pattern Recognition and Machine Learning》
+<details>
+<summary>答案</summary>
+
+LDA是概率生成模型，NMF是矩阵分解。LDA更灵活，可加入先验。
+
+</details>
+
+### 思考题
+
+**思考题1**：如何选择K？
+
+<details>
+<summary>答案</summary>
+
+使用困惑度+一致性曲线，或领域知识。
+
+</details>
+
+---
+
+## 14. 学习路径建议
+
+### 第一阶段
+
+1. 概率基础
+2. 文本处理
+3. LDA原理
+
+### 第二阶段
+
+1. 实现变分推断
+2. 吉布斯采样
+3. 对比实验
+
+### 第三阶段
+
+1. 实际应用
+2. 调参优化
+
+### 推荐资源
+
+- **论文**：《Latent Dirichlet Allocation》
+- **代码**：Gensim
+- **项目**：主题建模
+
+---
+
+*LDA是文本主题建模的基础模型，在NLP领域广泛应用。*

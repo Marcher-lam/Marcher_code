@@ -190,6 +190,89 @@ GBPO 与 PPO/ECPO 的对比：
 | ECPO (V1) | 早期梯度裁剪 | 部分丢弃 | 中高 | 低 |
 | GBPO (V2) | BCE梯度动态约束 | 全量利用 | 高 | 高 |
 
+# 5.5 核心数学公式推导
+
+## 5.5.1 GBPO 损失函数推导
+
+GBPO 的核心思想是用 BCE 梯度作为 RL 策略梯度的动态上界。设策略为 $\pi_\theta$，奖励为 $r$，优势函数为 $A$。
+
+**PPO 的裁剪目标**：
+
+$$\mathcal{L}_{\text{PPO}} = \mathbb{E}\left[\min\left(r_t(\theta) A_t, \, \text{clip}(r_t(\theta), 1-\epsilon, 1+\epsilon) A_t\right)\right]$$
+
+其中重要性采样比率：
+
+$$r_t(\theta) = \frac{\pi_\theta(a_t | s_t)}{\pi_{\theta_{\text{old}}}(a_t | s_t)}$$
+
+**BCE 梯度上界**：GBPO 引入 BCE 损失 $L_{\text{BCE}}$ 的梯度范数作为策略梯度的动态约束：
+
+$$\left\|\nabla_\theta \mathcal{L}_{\text{RL}}\right\| \leq \left\|\nabla_\theta \mathcal{L}_{\text{BCE}}\right\|$$
+
+$$\mathcal{L}_{\text{BCE}} = -\frac{1}{N}\sum_{i=1}^{N} \left[y_i \log \sigma(A_i) + (1 - y_i) \log(1 - \sigma(A_i))\right]$$
+
+其中 $y_i = \mathbb{1}[r_i > 0]$，$\sigma$ 为 sigmoid 函数。
+
+**GBPO 总损失**：
+
+$$\mathcal{L}_{\text{GBPO}} = \mathcal{L}_{\text{PPO}} + \beta \cdot \mathcal{H}(\pi_\theta)$$
+
+其中 $\mathcal{H}(\pi_\theta) = -\sum_a \pi_\theta(a|s) \log \pi_\theta(a|s)$ 为策略熵，$\beta$ 为熵正则系数。
+
+## 5.5.2 时长感知奖励公式
+
+为消除视频时长偏差，V2 采用分桶分位数奖励：
+
+$$r_{\text{duration}} = \mathbb{1}\left[\text{play\_time}(v) \geq Q_{0.75}(\text{play\_time} \mid \text{bucket}(v))\right]$$
+
+其中 $Q_{0.75}$ 表示该时长分桶内播放时长的 75% 分位数。分桶函数为：
+
+$$\text{bucket}(v) = \left\lfloor \frac{\text{duration}(v)}{\Delta t} \right\rfloor$$
+
+$\Delta t$ 为分桶宽度。归一化后的奖励为：
+
+$$\tilde{r}_v = \frac{r_{\text{duration}}(v) - \mu_{\text{bucket}}}{\sigma_{\text{bucket}} + \epsilon}$$
+
+## 5.5.3 Lazy Cross-Attention 计算公式
+
+Lazy Decoder 的核心是复用静态 KV 缓存。Context Processor 一次性计算：
+
+$$K_{\text{ctx}} = \text{GQA}_K(\text{Concat}[e_{\text{static}}, e_{\text{short}}, e_{\text{long}}])$$
+
+$$V_{\text{ctx}} = \text{GQA}_V(\text{Concat}[e_{\text{static}}, e_{\text{short}}, e_{\text{long}}])$$
+
+其中 GQA 为分组查询注意力，将 $h$ 个注意力头分成 $g$ 组共享 KV：
+
+$$\text{GQA}(Q, K, V) = \text{Concat}\left[\text{head}_1, \ldots, \text{head}_h\right] W^O$$
+
+$$\text{head}_i = \text{softmax}\left(\frac{Q_i K_{\lceil i/g \rceil}^T}{\sqrt{d_k}}\right) V_{\lceil i/g \rceil}$$
+
+Lazy Cross-Attention 在第 $l$ 层直接复用 $K_{\text{ctx}}, V_{\text{ctx}}$：
+
+$$\text{LazyAttn}^l(X^l) = \text{softmax}\left(\frac{X^l W_Q^l (K_{\text{ctx}})^T}{\sqrt{d_k}}\right) V_{\text{ctx}}$$
+
+## 5.5.4 序列生成概率
+
+OneRec V2 以自回归方式生成推荐项，目标项 $y = (t_1, t_2, \ldots, t_T)$ 的生成概率：
+
+$$P_\theta(y \mid \text{ctx}) = \prod_{t=1}^{T} P_\theta(t_t \mid t_{<t}, \text{ctx})$$
+
+其中上下文 ctx 为用户的静态特征、短期行为和长期行为的拼接。训练目标为负对数似然：
+
+$$\mathcal{L}_{\text{NLL}} = -\sum_{t=1}^{T} \log P_\theta(t_t \mid t_{<t}, \text{ctx})$$
+
+**RL + NLL 联合训练**：
+
+$$\mathcal{L}_{\text{total}} = \alpha \cdot \mathcal{L}_{\text{NLL}} + (1-\alpha) \cdot \mathcal{L}_{\text{GBPO}}$$
+
+## 5.5.5 计算复杂度分析
+
+| 模块 | 计算复杂度 | 说明 |
+|------|-----------|------|
+| Context Processor | $O(L_{\text{ctx}} \cdot d^2 / g)$ | GQA 将 KV 计算量降至 $1/g$ |
+| Lazy Cross-Attention | $O(T \cdot d^2)$ per layer | $T$ 为生成序列长度，$K_{\text{ctx}}$ 复用 |
+| V1 Encoder-Decoder | $O(L_{\text{ctx}}^2 \cdot d)$ | Encoder 需完整自注意力 |
+| V2 总体 | $O(T \cdot d^2 \cdot L_{\text{layers}})$ | 计算集中于 Target Decoding |
+
 # 6 部署架构与优化
 
 ```

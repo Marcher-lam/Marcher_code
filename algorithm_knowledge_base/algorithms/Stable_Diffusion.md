@@ -343,38 +343,108 @@ def visualize():
 
 ## 12. 练习题与思考题
 
-### 12.1 基础练习
+### 12.1 选择题
 
-1. 扩散 vs GAN
-2. Latent 空间作用
+1. Stable Diffusion在什么空间操作？
+   - A) 像素空间
+   - B) Latent空间
+   - C) 特征空间
 
-### 12.2 思考题
+2. 条件引导使用什么模型？
+   - A) BERT
+   - B) CLIP
+   - C) GPT
 
-1. 如何改进手部生成
+3. VAE的作用是：
+   - A) 文本编码
+   - B) 图像编解码
+   - C) 去噪
+
+### 12.2 简答题
+
+1. 扩散 vs GAN的区别？
+2. Latent空间的作用是什么？
+
+### 12.3 编程题
+
+1. 使用diffusers库生成图片
+2. 实现 ControlNet 控制
+3. 训练 LoRA
+
+---
+
+## 13. 常见问题与易错点
+
+### Q1: 手部生成有问题？
+
+**答案**：使用ControlNet或局部重绘。
+
+### Q2: 文字生成困难？
+
+**答案**：使用OCR后处理或Inpainting。
+
+### Q3: 如何微调？
+
+**答案**：使用LoRA或Dreambooth。
+
+### Q4: 生成很慢？
+
+**答案**：用DDIM采样或Euler采样器。
+
+### Q5: 显存不够？
+
+**答案**：使用float16或tile分块。
 
 ---
 
 ## 14. 学习路径建议
 
-### 入门阶段
-
-1. 扩散模型基础
-2. CLIP 原理
-
-### 进阶阶段
-
-1. Stable Diffusion 架构
-2. 实践生成
-
-### 高级阶段
-
-1. ControlNet
-2. Lora 微调
-
-**推荐路线**：
+### 14.1 进阶路径
 
 ```
-VAE → DDPM → Stable Diffusion → ControlNet
+扩散模型基础
+    ↓
+CLIP原理
+    ↓
+Stable Diffusion架构
+    ↓
+DDPM原理
+    ↓
+ControlNet
+    ↓
+LoRA微调
 ```
 
-**Stable Diffusion 是 AI 绘画的里程碑，熟练掌握它对生成模型应用很重要。**
+### 14.2 相关算法
+
+| 算法 | 关系 |
+|------|------|
+| DDPM | 扩散基础 |
+| DALL-E | 竞品 |
+| ControlNet | 控制生成 |
+| LoRA | 轻量微调 |
+
+### 14.3 扩展阅读
+
+1. Rombach et al. (2022). Stable Diffusion
+2. Zhang et al. (2023). ControlNet
+
+---
+
+## 附录
+
+### A. 参数速查
+
+| 参数 | 推荐值 |
+|------|--------|
+| steps | 50 |
+| guidance | 7.5 |
+| size | 512/768 |
+
+### B. 参考
+
+1. Rombach et al. (2022). Stable Diffusion. arXiv:2112.10752
+
+---
+
+**文档结束**

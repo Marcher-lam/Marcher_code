@@ -308,5 +308,96 @@ PEPNet 同时解决多任务与多场景的双重跷跷板问题 （即任务冲
  通过分层门控机制，同时捕捉场景共性与任务依赖性，例如在快手短视频推荐中，EPNet 解决“推荐页”与“朋友页”的特征分布差异，PPNet 解决“点赞”与“关注”的任务冲突。  
 三者关系可概括为： EPNet 和 PPNet 是PEPNet 的核心组件，分别从 Embedding 层和参数层注入个性化先验，而 PEPNet 通过联合优化实现多场景多任务的全局最优。实际应用中，若仅需解决单一问题（如仅多任务或多场景），可独立使用 PPNet 或 EPNet；若需综合优化，PEPNet 是更优选择。
 
+# Loss 权重平衡代码实现
+
+```python
+import torch
+import torch.nn as nn
+
+
+class UncertaintyWeighting(nn.Module):
+    """基于不确定性的自适应权重"""
+    def __init__(self, n_tasks):
+        super().__init__()
+        self.log_vars = nn.Parameter(torch.zeros(n_tasks))
+
+    def forward(self, losses):
+        total = 0
+        for i, loss in enumerate(losses):
+            precision = torch.exp(-self.log_vars[i])
+            total += precision * loss + self.log_vars[i]
+        return total
+
+
+class DynamicWeightAveraging:
+    """动态加权平均 DWA"""
+    def __init__(self, n_tasks, temperature=2.0):
+        self.n_tasks = n_tasks
+        self.temperature = temperature
+        self.prev_losses = None
+
+    def get_weights(self, current_losses):
+        if self.prev_losses is None:
+            self.prev_losses = current_losses
+            return [1.0 / self.n_tasks] * self.n_tasks
+        ratios = [c / (p + 1e-8) for c, p in zip(current_losses, self.prev_losses)]
+        exp_ratios = [torch.exp(r / self.temperature) for r in ratios]
+        total = sum(exp_ratios)
+        weights = [e / total for e in exp_ratios]
+        self.prev_losses = current_losses
+        return [w.item() for w in weights]
+
+
+class GradNormController:
+    """梯度标准化 GradNorm 权重控制器"""
+    def __init__(self, n_tasks, alpha=1.5):
+        self.n_tasks = n_tasks
+        self.alpha = alpha
+        self.initial_losses = None
+
+    def compute_grad_loss(self, shared_params, losses, task_grads):
+        if self.initial_losses is None:
+            self.initial_losses = [l.item() for l in losses]
+        loss_ratios = [l.item() / (il + 1e-8) for l, il in zip(losses, self.initial_losses)]
+        avg_ratio = sum(loss_ratios) / len(loss_ratios)
+        inv_rates = [r / (avg_ratio + 1e-8) for r in loss_ratios]
+        grad_norms = [sum(g.norm() ** 2 for g in tg) ** 0.5 for tg in task_grads]
+        avg_gn = sum(grad_norms) / len(grad_norms)
+        targets = [avg_gn * (ir ** self.alpha) for ir in inv_rates]
+        grad_loss = sum(abs(gn - tgt) for gn, tgt in zip(grad_norms, targets))
+        return grad_loss
+
+
+def demo_weight_methods():
+    """演示不同权重策略的效果"""
+    n_tasks = 2
+    losses = [torch.tensor(0.5, requires_grad=True), torch.tensor(2.0, requires_grad=True)]
+
+    uw = UncertaintyWeighting(n_tasks)
+    print(f"Uncertainty Loss: {uw(losses).item():.4f}")
+
+    dwa = DynamicWeightAveraging(n_tasks, temperature=2.0)
+    w = dwa.get_weights(losses)
+    print(f"DWA 权重: {[round(x, 3) for x in w]}")
+
+    total_dwa = sum(wi * li.item() for wi, li in zip(w, losses))
+    print(f"DWA 加权 Loss: {total_dwa:.4f}")
+
+
+if __name__ == "__main__":
+    demo_weight_methods()
+```
+
+## 常见问题与易错点
+
+1. **不确定性加权的 log_var 初始化**：初始化为 0 意味着初始权重相等，若任务量级差异大可手动设置初始值
+2. **DWA 的温度参数**：T 过大则权重趋于均匀（失去调节效果），T 过小则权重过于尖锐，通常取 1.0-2.0
+3. **GradNorm 的 α 参数**：α=0 表示不调整（所有任务目标梯度相同），α 越大越强调逆学习速率的任务
+4. **固定权重的陷阱**：CTR 和 CVR 的 Loss 量级可能差 10 倍，固定权重必须归一化后再设置
+
+## 学习总结
+
+多任务 Loss 权重平衡的核心矛盾是"任务竞争"：不同任务对共享参数的梯度方向和量级不一致。固定权重最简单但不灵活；Uncertainty Weighting 通过可学习参数自动平衡量级；DWA 根据学习速度动态调节；GradNorm 直接在梯度层面平衡。实践中推荐从 Uncertainty Weighting 起步（实现简单、效果好），任务冲突严重时升级到 GradNorm。
+
 # 4.5 因果推断与 Uplift
 

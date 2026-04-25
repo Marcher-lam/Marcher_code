@@ -1,714 +1,579 @@
 # DM 学习文档
 
+> DM (Diffusion Model) 扩散模型是一种基于_score-based_生成模型，通过逐步加噪和去噪过程学习数据分布，已成为当前最强的图像生成模型之一。
+
+---
+
 ## 1. 算法基础认知
 
-### 1.1 一句话定义
+### 一句话定义
+DM 通过学习数据到噪声的正向扩散过程和噪声到数据的逆向去噪过程，能够生成高质量、多样化的图像和数据。
 
-扩散模型（Diffusion Model，DM）是一类基于分数匹配的生成模型，通过前向扩散过程逐步添加噪声，再学习逆向过程从噪声中恢复数据，是目前最强大的生成模型之一。
+### 直觉类比
+想象一滴墨水滴入水中：
+- **正向过程**：墨水逐渐扩散，最终均匀分布在整个水杯（完全变成噪声）
+- **逆向过程**：从浑浊的水中逆向"溯源"，逐渐恢复出清晰的墨水位置
 
-### 1.2 直觉类比
+DM正是学习这个"逆向恢复"的过程，从而可以从随机噪声生成逼真图像。
 
-扩散模型像一个雕塑家的创作过程：首先将一块大理石均匀地打碎成细小的碎片（扩散），然后雕塑家学习如何逆向操作——将这些碎片重新组合成完美的雕塑（去噪）。
+### 历史背景
+- 2015年，Sohl-Dickstein等人提出扩散模型
+- 2020年，Ho等人提出DDPM，简化了训练目标
+- 2022年，Stable Diffusion将DM与latent空间结合，实现高效图像生成
 
-### 1.3 历史背景
+### 算法定位
+- **类型**：生成模型 / 深度学习
+- **输出**：与训练数据同分布的新样本
+- **模型类型**：UNet + 时间步嵌入
 
-扩散模型的思想最早可追溯到2015年Sohl-Dickstein等人的工作。2020年，Ho等人提出DDPM简化了训练。2021年Song等人提出Score Matching with Langevin Dynamics（SMLD），同年Song等人提出连续扩散模型（Score SDE），为Diffusion Model统一了理论基础。
+### 前置知识
+- 神经网络基础（UNet架构）
+- 高斯分布
+- VAE/GAN基础（对比理解）
 
-### 1.4 算法定位
-
-- 类型：无监督学习/自监督学习
-- 输出：生成新样本
-- 模型类别：生成模型（基于分数）
-
-### 1.5 前置知识
-
-- 概率论（贝叶斯、条件概率）
-- 随机微分方程（SDE）
-- 神经网络
-- DDPM基础
+---
 
 ## 2. 核心原理
 
 ### 2.1 核心思想
+DM的核心思想是**两阶段过程**：
 
-扩散模型基于**分数匹配**（Score Matching）理论：
-- 学习数据分布的梯度（对数密度梯度）
-- 使用Langevin动力学采样
+1. **正向扩散（Forward Process）**：逐步向数据添加噪声，直到变成纯高斯噪声
+   $$q(x_t|x_{t-1}) = \mathcal{N}(x_t; \sqrt{1-\beta_t}x_{t-1}, \beta_t \mathbf{I})$$
 
-三种主要框架统一为SDE：
-1. **DDPM**：离散时间的离散扩散
-2. **SMLD**：离散时间的噪声条件分数网络
-3. **Score SDE**：连续时间的随机微分方程
+2. **逆向去噪（Reverse Process）**：学习从噪声恢复到数据
+   $$p_\theta(x_{t-1}|x_t) = \mathcal{N}(\mu_\theta(x_t,t), \sigma_t^2 \mathbf{I})$$
+
+关键insight：**预测噪声而非直接重建**
 
 ### 2.2 工作流程
-
-1. **前向SDE**：$dx = f(x,t)dt + g(t)dw$
-2. **逆向SDE**：$dx = [f(x,t) - g(t)^2 \nabla_x \log p_t(x)]dt + g(t)d\bar{w}$
-3. **分数网络**：学习$\nabla_x \log p_t(x)$
+```
+数据x_0 → x_1 → x_2 → ... → x_T (噪声)
+                           ↓
+                      学习逆向过程
+                           ↓
+噪声x_T ← x_{T-1} ← ... ← x_0 (生成)
+```
 
 ### 2.3 关键概念
+- **噪声调度（Noise Schedule）**：$\beta_t$ 的递增序列
+- **时间步嵌入（Time Embedding）**：将t映射到向量
+- **Score函数**：$\nabla_x \log p(x)$，或等价的噪声预测
+- **DDPM**：简化版的简化扩散概率模型
 
-- **分数（Score）**：$\nabla_x \log p(x)$
-- **SDE**：随机微分方程描述连续扩散
-- **Langevin采样**：基于分数的采样方法
+### 2.4 几何直观
+```
+┌──────────────────────────────────────────────────────┐
+│              正向vs逆向过程                          │
+│                                                      │
+│  x_0 (清晰图) → x_1 → x_2 → ... → x_T (纯噪声)     │
+│     ↑         │         │              │               │
+│     │ 正向    │   β递增  │         β_T≈1            │
+│     │ q(x_t|x_{t-1})                             │
+│                                                      │
+│  x_T (噪声)  ← x_{T-1} ← ... ← x_0 (生成图)       │
+│     ↓         │         │              │               │
+│     │ 逆向    │  学习   │      学习p_θ             │
+│     │ p_θ(x_{t-1}|x_t)                            │
+└──────────────────────────────────────────────────────┘
+```
+
+---
 
 ## 3. 数学公式与推导
 
 ### 3.1 符号约定
 
-| 符号 | 含义 |
-|------|------|
-| $x(t)$ | t时刻的数据 |
-| $w(t)$ | 维纳过程 |
-| $f(x,t)$ | 漂移项 |
-| $g(t)$ | 扩散系数 |
-| $\nabla_x \log p_t(x)$ | 分数 |
+| 符号 | 含义 | 维度 |
+|------|------|----------|
+| $x_0$ | 原始数据 | $\mathbb{R}^{C\times H\times W}$ |
+| $x_t$ | t时刻的加噪数据 | 同上 |
+| $\beta_t$ | 第t步的噪声方差 | scalar |
+| $\alpha_t$ | $1-\beta_t$ | scalar |
+| $\bar{\alpha}_t$ | $\prod_{i=1}^t \alpha_i$ | scalar |
+| $\epsilon$ | 噪声，$\epsilon \sim \mathcal{N}(0,\mathbf{I})$ | 同上 |
+| $\epsilon_\theta(x_t,t)$ | 网络预测的噪声 | 同上 |
+| $T$ | 总扩散步数 | 1000 |
 
-### 3.2 前向SDE
+### 3.2 正向扩散过程
+$$q(x_t|x_0) = \mathcal{N}(x_t; \sqrt{\bar{\alpha}_t}x_0, (1-\bar{\alpha}_t)\mathbf{I})$$
 
-$$dx = f(x,t)dt + g(t)dw$$
+可等价写为：
+$$x_t = \sqrt{\bar{\alpha}_t}x_0 + \sqrt{1-\bar{\alpha}_t}\epsilon$$
 
-常用的VE（Variance Exploding）SDE：
-$$dx = \sqrt{\frac{d\sigma^2}{dt}} dw$$
+这意味着我们可以直接获取任意时刻t的加噪数据，无需递归。
 
-常用的VP（Variance Preserving）SDE：
-$$dx = -\frac{1}{2} x dt + g(t) dw$$
+### 3.3 逆向去噪过程
+目标是学习 $p_\theta(x_{t-1}|x_t)$：
 
-### 3.3 逆向SDE
+$$\mathcal{L}_{simple} = \mathbb{E}_{t,x_0,\epsilon}[||\epsilon - \epsilon_\theta(\sqrt{\bar{\alpha}_t}x_0 + \sqrt{1-\bar{\alpha}_t}\epsilon, t)||^2]$$
 
-$$dx = [f(x,t) - g(t)^2 \nabla_x \log p_t(x)]dt + g(t)d\bar{w}$$
+简化目标：**神经网络直接预测添加的噪声**！
 
-### 3.4 分数匹配目标
+### 3.4 DDPM训练目标
+$$\mathcal{L}(\theta) = \mathbb{E}_{t,x_0,\epsilon}\left[||\epsilon - \epsilon_\theta(x_t, t)||^2\right]$$
 
-去噪分数匹配：
-$$\mathcal{L} = \mathbb{E}_t \mathbb{E}_{x(0)} \mathbb{E}_{x(t)|x(0)} [\lambda(t) \| s_\theta(x(t), t) - \nabla_{x(t)} \log p_{0t}(x(t)|x(0)) \|^2]$$
+其中 $x_t = \sqrt{\bar{\alpha}_t}x_0 + \sqrt{1-\bar{\alpha}_t}\epsilon$。
 
-### 3.5 采样过程
+### 3.5 生成过程（采样）
+从纯噪声 $x_T \sim \mathcal{N}(0,\mathbf{I})$ 开始：
 
-使用Euler-Maruyama方法求解逆向SDE：
-```python
-for t in reversed(range(T)):
-    x = x + [f(x,t) - g(t)^2 * score(x,t)] * dt + g(t) * sqrt(dt) * noise
-```
+$$x_{t-1} = \frac{1}{\sqrt{\alpha_t}}(x_t - \frac{\beta_t}{\sqrt{1-\bar{\alpha}_t}}\epsilon_\theta(x_t,t)) + \sqrt{\beta_t}\mathbf{z}$$
+
+其中 $\mathbf{z} \sim \mathcal{N}(0,\mathbf{I})$（最后一步可省略）。
+
+---
 
 ## 4. 训练过程讲解
 
-### 4.1 网络架构
+### 4.1 数据预处理
+- 图像归一化到 [-1,1]
+- 确保数据可以被UNet处理
 
-- **U-Net with Attention**：去噪骨干
-- **时间嵌入**：告诉网络当前时间步
-- **条件机制**：支持条件生成
+### 4.2 参数初始化
+- UNet权重：Xavier初始化
+- 时间嵌入：随机初始化
 
-### 4.2 条件生成
-
-Classifier-Free Guidance：
-$$\tilde{s}_\theta(x,t|c) = (1+w) s_\theta(x,t|c) - w \cdot s_\theta(x,t)$$
-
-### 4.3 超参数
-
-- SDE类型：VE/VP/SubVP
-- 步数T：1000-2000
-- 采样步数：50-100（加速采样）
-- guidance_weight：1.0-7.5
-
-### 4.4 训练技巧
-
-- EMA（指数移动平均）
-- AMP（混合精度）
-- 分布式训练
-
-## 5. 应用场景
-
-### 5.1 应用
-
-- **文本到图像**：DALL-E 2, Stable Diffusion, Imagen
-- **图像编辑**：Inpainting, Outpainting
-- **视频生成**：Make-A-Video
-- **药物发现**：分子生成
-
-### 5.2 适用
-
-- 需要最高质量的生成
-- 多样性关键
-- 控制性强
-
-### 5.3 不适用
-
-- 实时应用（采样慢）
-- 边缘设备
-
-## 6. 优缺点分析
-
-### 6.1 优点
-
-- **生成质量最高**：FID指标领先
-- **多样性好**：避免模式崩溃
-- **训练稳定**：无需对抗训练
-- **可控性强**：条件生成、编辑
-
-### 6.2 缺点
-
-- **采样慢**：需要多步迭代
-- **计算成本高**：大模型参数量
-- **理论基础深**：学习曲线陡
-
-### 6.3 对比
-
-| 特性 | DM (Score SDE) | DDPM | GAN | VAE |
-|------|-----------------|------|-----|-----|
-| 理论统一 | 是 | 部分 | 否 | 部分 |
-| 生成质量 | 最高 | 高 | 高 | 中 |
-| 训练稳定性 | 高 | 高 | 低 | 高 |
-| 采样速度 | 慢 | 慢 | 快 | 快 |
-| 可控性 | 强 | 强 | 中 | 中 |
-
-## 7. 调库实现
-
-### 7.1 环境准备
-
-```bash
-pip install torch numpy matplotlib diffusers
-```
-
-### 7.2 完整代码
+### 4.3 迭代过程
 
 ```python
+"""
+DM (Diffusion Model) 完整实现
+"""
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
-import matplotlib.pyplot as plt
-import math
+from typing import Optional
 
-
-class ScoreNet(nn.Module):
-    """预测分数的网络"""
+def get_noise_schedule(num_timesteps=1000, schedule='linear'):
+    """噪声调度"""
+    if schedule == 'linear':
+        betas = torch.linspace(0.0001, 0.02, num_timesteps)
+    elif schedule == 'cosine':
+        steps = torch.arange(num_timesteps + 1)
+        alpha_hat = torch.cos(((steps / num_timesteps) + 0.008) / 1.008 * torch.pi * 0.5) ** 2
+        alpha_hat = alpha_hat / alpha_hat[0]
+        betas = 1 - (alpha_hat[1:] / alpha_hat[:-1])
+        betas = torch.clip(betas, 0.0001, 0.9999)
+    else:
+        raise ValueError(f"Unknown schedule: {schedule}")
     
-    def __init__(self, channels=64, time_emb_dim=128):
+    alphas = 1 - betas
+    alpha_hat = torch.cumprod(alphas, dim=0)
+    
+    return betas, alphas, alpha_hat
+
+
+class TimeEmbedding(nn.Module):
+    """时间步嵌入"""
+    def __init__(self, dim=128):
         super().__init__()
-        self.time_emb_dim = time_emb_dim
-        
-        self.time_mlp = nn.Sequential(
-            nn.Linear(1, time_emb_dim),
-            nn.SiLU(),
-            nn.Linear(time_emb_dim, time_emb_dim)
-        )
-        
-        self.conv1 = nn.Conv2d(3, channels, 3, padding=1)
-        self.conv2 = nn.Conv2d(channels, channels, 3, padding=1)
-        
-        self.down1 = nn.Sequential(
-            nn.Conv2d(channels, channels * 2, 4, stride=2, padding=1),
-            nn.BatchNorm2d(channels * 2),
-            nn.SiLU()
-        )
-        self.down2 = nn.Sequential(
-            nn.Conv2d(channels * 2, channels * 4, 4, stride=2, padding=1),
-            nn.BatchNorm2d(channels * 4),
-            nn.SiLU()
-        )
-        
-        self.up1 = nn.Sequential(
-            nn.ConvTranspose2d(channels * 4, channels * 2, 4, stride=2, padding=1, output_padding=1),
-            nn.BatchNorm2d(channels * 2),
-            nn.SiLU()
-        )
-        self.up2 = nn.Sequential(
-            nn.ConvTranspose2d(channels * 2, channels, 4, stride=2, padding=1, output_padding=1),
-            nn.BatchNorm2d(channels),
-            nn.SiLU()
-        )
-        
-        self.final = nn.Conv2d(channels, 3, 3, padding=1)
+        self.dim = dim
     
-    def get_time_embedding(self, t):
-        half_dim = self.time_emb_dim // 2
-        emb = math.log(10000) / (half_dim - 1)
-        emb = torch.exp(torch.arange(half_dim, device=t.device) * -emb)
-        emb = t[:, None] * emb[None, :]
-        emb = torch.cat([emb.sin(), emb.cos()], dim=-1)
-        return emb
+    def forward(self, t):
+        half_dim = self.dim // 2
+        embeddings = torch.log(torch.tensor(10000.0)) / (half_dim - 1)
+        embeddings = torch.exp(torch.arange(half_dim) * -embeddings)
+        embeddings = t[:, None] * embeddings[None, :]
+        embeddings = torch.cat([torch.sin(embeddings), torch.cos(embeddings)], dim=-1)
+        return embeddings
+
+
+class ResidualBlock(nn.Module):
+    """残差块"""
+    def __init__(self, in_channels, out_channels, time_dim):
+        super().__init__()
+        self.conv1 = nn.Conv2d(in_channels, out_channels, 3, padding=1)
+        self.conv2 = nn.Conv2d(out_channels, out_channels, 3, padding=1)
+        self.time_mlp = nn.Linear(time_dim, out_channels)
+        self.norm1 = nn.GroupNorm(8, in_channels)
+        self.norm2 = nn.GroupNorm(8, out_channels)
+        self.act = nn.SiLU()
+        
+        if in_channels != out_channels:
+            self.shortcut = nn.Conv2d(in_channels, out_channels, 1)
+        else:
+            self.shortcut = nn.Identity()
     
     def forward(self, x, t):
-        t_emb = self.get_time_embedding(t)
-        t_emb = self.time_mlp(t_emb)
+        h = self.norm1(x)
+        h = self.act(h)
+        h = self.conv1(h)
         
-        h1 = F.silu(self.conv1(x))
-        h2 = F.silu(self.conv2(h1))
+        h = h + self.time_mlp(t)[:, :, None, None]
         
-        h = self.down1(h2 + t_emb[:, :self.down1[0].in_channels, None, None])
-        h = self.down2(h + t_emb[:, :self.down2[0].in_channels, None, None])
+        h = self.norm2(h)
+        h = self.act(h)
+        h = self.conv2(h)
         
-        h = self.up1(h + t_emb[:, :self.up1[0].in_channels, None, None])
-        h = self.up2(h + t_emb[:, :self.up2[0].in_channels, None, None])
-        
-        out = self.final(h)
-        return out
+        return h + self.shortcut(x)
 
 
-class DiffusionModel:
-    """基于Score Matching的扩散模型"""
+class UNet(nn.Module):
+    """UNet for Diffusion Model"""
     
-    def __init__(self, T=1000, sigma_min=0.01, sigma_max=50, device='cuda'):
-        self.T = T
-        self.sigma_min = sigma_min
-        self.sigma_max = sigma_max
-        self.device = device
+    def __init__(self, in_channels=3, out_channels=3, time_dim=128, base_channels=64):
+        super().__init__()
+        self.time_embedding = TimeEmbedding(time_dim)
         
-        self.model = ScoreNet().to(device)
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=1e-4)
+        # Encoder
+        self.enc1 = ResidualBlock(in_channels, base_channels, time_dim)
+        self.enc2 = ResidualBlock(base_channels, base_channels*2, time_dim)
+        self.enc3 = ResidualBlock(base_channels*2, base_channels*4, time_dim)
+        self.enc4 = ResidualBlock(base_channels*4, base_channels*4, time_dim)
         
-        self.sigmas = torch.exp(
-            torch.linspace(math.log(sigma_min), math.log(sigma_max), T)
-        ).to(device)
+        # Middle
+        self.middle = ResidualBlock(base_channels*4, base_channels*4, time_dim)
+        
+        # Decoder
+        self.dec1 = ResidualBlock(base_channels*4, base_channels*4, time_dim)
+        self.dec2 = ResidualBlock(base_channels*4, base_channels*2, time_dim)
+        self.dec3 = ResidualBlock(base_channels*2, base_channels, time_dim)
+        self.dec4 = ResidualBlock(base_channels, base_channels, time_dim)
+        
+        # Output
+        self.out_conv = nn.Conv2d(base_channels, out_channels, 3, padding=1)
+        
+        self.pool = nn.MaxPool2d(2)
+        self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
     
-    def get_continuous_time(self, t):
-        return t / self.T * (self.sigma_max - self.sigma_min) + self.sigma_min
-    
-    def add_noise(self, x, sigma):
-        """添加噪声"""
-        noise = torch.randn_like(x)
-        return x + noise * sigma[:, None, None, None], noise
-    
-    def training_loss(self, x0):
-        """训练损失：去噪分数匹配"""
-        batch_size = x0.shape[0]
+    def forward(self, x, t):
+        t_emb = self.time_embedding(t)
         
-        t = torch.randint(0, self.T, (batch_size,), device=self.device)
-        sigma = self.sigmas[t]
+        # Encoder
+        e1 = self.enc1(x, t_emb)
+        e2 = self.enc2(self.pool(e1), t_emb)
+        e3 = self.enc3(self.pool(e2), t_emb)
+        e4 = self.enc4(self.pool(e3), t_emb)
         
+        # Middle
+        m = self.middle(e4, t_emb)
+        
+        # Decoder
+        d1 = self.dec1(self.upsample(m), t_emb)
+        d2 = self.dec2(self.upsample(d1), t_emb)
+        d3 = self.dec3(self.upsample(d2), t_emb)
+        d4 = self.dec4(self.upsample(d3), t_emb)
+        
+        return self.out_conv(d4)
+
+
+class DiffusionModel(nn.Module):
+    """扩散模型"""
+    
+    def __init__(self, in_channels=3, out_channels=3, time_dim=128, num_timesteps=1000):
+        super().__init__()
+        self.num_timesteps = num_timesteps
+        
+        self.unet = UNet(in_channels, out_channels, time_dim)
+        betas, alphas, alpha_hat = get_noise_schedule(num_timesteps)
+        self.register_buffer('betas', betas)
+        self.register_buffer('alphas', alphas)
+        self.register_buffer('alpha_hat', alpha_hat)
+    
+    def forward_diffusion(self, x0, t):
+        """正向加噪"""
+        alpha_hat_t = self.alpha_hat[t][:, None, None, None]
         noise = torch.randn_like(x0)
-        x_noisy = x0 + noise * sigma[:, None, None, None]
+        return torch.sqrt(alpha_hat_t) * x0 + torch.sqrt(1 - alpha_hat_t) * noise, noise
+    
+    def predict_noise(self, xt, t):
+        """预测噪声"""
+        return self.unet(xt, t)
+    
+    def training_step(self, x0):
+        """训练步骤"""
+        batch_size = x0.shape[0]
+        t = torch.randint(0, self.num_timesteps, (batch_size,), device=x0.device)
         
-        score_pred = self.model(x_noisy, sigma)
+        # 正向加噪
+        xt, noise = self.forward_diffusion(x0, t)
         
-        loss = (noise + score_pred * sigma[:, None, None, None]).pow(2).mean()
+        # 预测噪声
+        pred_noise = self.predict_noise(xt, t)
+        
+        # MSE损失
+        loss = F.mse_loss(pred_noise, noise)
         
         return loss
     
     @torch.no_grad()
-    def sampling(self, shape, n_steps=100, device='cuda'):
-        """使用Euler-Maruyama采样"""
-        x = torch.randn(shape, device=device)
+    def sample(self, shape):
+        """采样/生成"""
+        device = next(self.parameters()).device
+        xT = torch.randn(shape, device=device)
         
-        step_size = 1.0 / n_steps
-        t_steps = torch.linspace(1, 0, n_steps + 1, device=device)
+        for t in reversed(range(self.num_timesteps)):
+            t_batch = torch.full((shape[0],), t, device=device)
+            
+            pred_noise = self.unet(xT, t_batch)
+            
+            alpha_t = self.alphas[t]
+            alpha_hat_t = self.alpha_hat[t]
+            beta_t = self.betas[t]
+            alpha_hat_prev = self.alpha_hat[t-1] if t > 0 else torch.tensor(1.0, device=device)
+            
+            # 计算均值
+            mean = (xT - pred_noise * torch.sqrt(1 - alpha_hat_t) * beta_t.sqrt()) / alpha_t.sqrt()
+            
+            if t > 0:
+                noise = torch.randn_like(xT)
+                xT = mean + torch.sqrt(beta_t) * noise
+            else:
+                xT = mean
         
-        for i in range(n_steps):
-            t = t_steps[i] * (self.sigma_max - self.sigma_min) + self.sigma_min
-            sigma = torch.full((shape[0],), t, device=device)
+        return xT
+
+
+def train_diffusion(model, dataloader, epochs=100, lr=1e-4, device='cuda'):
+    """训练"""
+    model = model.to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    
+    losses = []
+    for epoch in range(epochs):
+        epoch_loss = 0
+        for batch in dataloader:
+            x = batch[0].to(device)
             
-            score = self.model(x, sigma)
+            loss = model.training_step(x)
             
-            drift = -0.5 * x
-            diffusion = (t / self.sigma_max) ** 0.5
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
             
-            x = x + (drift - diffusion * score * t) * step_size
-            x = x + torch.randn_like(x) * (step_size * t) ** 0.5
+            epoch_loss += loss.item()
         
-        return x
-    
-    def train(self, dataloader, n_epochs=50):
-        losses = []
+        losses.append(epoch_loss / len(dataloader))
         
-        for epoch in range(n_epochs):
-            self.model.train()
-            epoch_loss = 0
-            
-            for batch_idx, (x, _) in enumerate(dataloader):
-                x = x.to(self.device)
-                
-                loss = self.training_loss(x)
-                
-                self.optimizer.zero_grad()
-                loss.backward()
-                self.optimizer.step()
-                
-                epoch_loss += loss.item()
-            
-            avg_loss = epoch_loss / len(dataloader)
-            losses.append(avg_loss)
-            
-            if (epoch + 1) % 10 == 0:
-                print(f"Epoch [{epoch+1}/{n_epochs}], Loss: {avg_loss:.4f}")
-        
-        return losses
+        if (epoch + 1) % 10 == 0:
+            print(f"Epoch {epoch+1}, Loss: {losses[-1]:.6f}")
+    
+    return losses
 
 
-def visualize_generation(dm, n_samples=16, shape=(3, 32, 32)):
-    """可视化生成的样本"""
-    dm.model.eval()
-    
-    with torch.no_grad():
-        samples = dm.sampling((n_samples, *shape))
-        samples = samples.cpu().numpy()
-        samples = np.clip(samples, -1, 1)
-        samples = (samples + 1) / 2
-    
-    fig, axes = plt.subplots(4, 4, figsize=(8, 8))
-    for i, ax in enumerate(axes.flat):
-        if i < len(samples):
-            img = samples[i].transpose(1, 2, 0)
-            ax.imshow(np.clip(img, 0, 1))
-            ax.axis('off')
-    
-    plt.suptitle('Diffusion Model Generated Samples')
-    plt.tight_layout()
-    plt.savefig('dm_samples.png', dpi=150)
-    plt.show()
+# 使用示例
+# model = DiffusionModel(in_channels=3, out_channels=3, num_timesteps=1000)
+# model = train_diffusion(model, dataloader)
 
-
-def visualize_noise_schedule():
-    """可视化噪声调度"""
-    T = 1000
-    sigma_min, sigma_max = 0.01, 50
-    
-    sigmas = np.exp(np.linspace(np.log(sigma_min), np.log(sigma_max), T))
-    
-    plt.figure(figsize=(12, 4))
-    
-    plt.subplot(1, 2, 1)
-    plt.plot(sigmas)
-    plt.xlabel('Time Step')
-    plt.ylabel('Sigma')
-    plt.title('Noise Schedule (Log Scale)')
-    plt.yscale('log')
-    plt.grid(True)
-    
-    plt.subplot(1, 2, 2)
-    plt.plot(np.sqrt(sigmas))
-    plt.xlabel('Time Step')
-    plt.ylabel('Standard Deviation')
-    plt.title('Noise Standard Deviation')
-    plt.grid(True)
-    
-    plt.tight_layout()
-    plt.savefig('noise_schedule.png', dpi=150)
-    plt.show()
-
-
-def visualize_reverse_process(dm, x0, n_steps=10):
-    """可视化逆向去噪过程"""
-    dm.model.eval()
-    
-    fig, axes = plt.subplots(1, n_steps + 1, figsize=(15, 3))
-    
-    x = x0
-    t_start = 50
-    
-    for i, t in enumerate(np.linspace(t_start, 0, n_steps + 1, dtype=int)):
-        if i == 0:
-            axes[i].imshow(x0[0].transpose(1, 2, 0))
-            axes[i].set_title('Original')
-        else:
-            x = x + torch.randn_like(x) * 0.01
-            axes[i].imshow(x[0].cpu().numpy().transpose(1, 2, 0) * 0.5 + 0.5)
-            axes[i].set_title(f'Step {i}')
-        axes[i].axis('off')
-    
-    plt.suptitle('Reverse Process')
-    plt.tight_layout()
-    plt.savefig('reverse_process.png', dpi=150)
-    plt.show()
-
-
-if __name__ == "__main__":
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    
-    print("创建扩散模型...")
-    dm = DiffusionModel(T=1000, sigma_min=0.01, sigma_max=50, device=device)
-    
-    print(f"参数量: {sum(p.numel() for p in dm.model.parameters())}")
-    
-    visualize_noise_schedule()
-    
-    print("\n模型已创建完成")
-    print("注意：由于MNIST/CIFAR数据量限制，此处展示框架结构")
-    print("实际训练需要完整数据集和更多epoch")
-    
-    dm.model.eval()
-    with torch.no_grad():
-        samples = dm.sampling((16, 1, 32, 32))
-        samples = samples.cpu().numpy()
-        samples = np.clip(samples, -1, 1)
-        samples = (samples + 1) / 2
-    
-    fig, axes = plt.subplots(4, 4, figsize=(8, 8))
-    for i, ax in enumerate(axes.flat):
-        ax.imshow(samples[i].squeeze(), cmap='gray')
-        ax.axis('off')
-    plt.suptitle('DM Generated Samples')
-    plt.tight_layout()
-    plt.savefig('dm_generated.png', dpi=150)
-    plt.show()
+# 生成
+# generated_images = model.sample(shape=(4, 3, 32, 32))
 ```
 
-### 7.3 结果示例
+### 4.4 收敛条件
+- 损失趋于稳定（<0.01量级）
+- 生成样本质量主观评估
 
-```
-Epoch [10/50], Loss: 0.1234
-Epoch [20/50], Loss: 0.0987
-Epoch [30/50], Loss: 0.0876
-```
+### 4.5 超参数
 
-## 8. 手工代码实现
+| 超参数 | 作用 | 推荐范围 |
+|--------|------|----------|
+| T | 扩散步数 | 1000 |
+| base_channels | UNet基础通道数 | 64~128 |
+| learning rate | 学习率 | 1e-4~1e-3 |
+| batch_size | 批量 | 16~32 |
 
-### 8.1 简化ScoreNet
+---
+
+## 5. 应用场景
+
+### 5.1 典型应用
+- **图像生成**：逼真人脸、艺术图像
+- **图像编辑**：inpainting、超分辨率
+- **文本生成图像**：Stable Diffusion
+- **视频生成**
+
+### 5.2 适用数据
+- 高维复杂数据
+- 需要高质量生成
+- 多样性要求高
+
+### 5.3 不适用
+- 实时性要求高（T步骤多）
+- 计算资源有限
+
+---
+
+## 6. 优缺点
+
+### 6.1 优点
+| 优点 | 说明 |
+|------|------|
+| 训练稳定 | 不mode collapse |
+| 高质量生成 | 超越GAN |
+| 多样性强 | 捕获完整分布 |
+
+### 6.2 缺点
+| 缺点 | 缓解 |
+|------|------|
+| 慢（多步） | DDIM加速 |
+| 内存大 | latent DM |
+
+---
+
+## 7. 调库实现
 
 ```python
-import numpy as np
+"""
+使用diffusers库
+"""
+from diffusers import DDPMPipeline
 
-class SimpleScoreNet:
-    """简化版分数网络"""
-    
-    def __init__(self, input_dim, hidden_dim=256):
-        self.input_dim = input_dim
-        
-        self.W1 = np.random.randn(hidden_dim, input_dim) * 0.1
-        self.W2 = np.random.randn(hidden_dim, hidden_dim) * 0.1
-        self.W3 = np.random.randn(input_dim, hidden_dim) * 0.1
-    
-    def score(self, x, sigma):
-        h = np.maximum(0, self.W1 @ x)
-        h = np.maximum(0, self.W2 @ h)
-        s = self.W3 @ h
-        return s / sigma
-    
-    def forward(self, x, sigma):
-        return self.score(x, sigma)
-
-
-class SimpleSMLD:
-    """简化版SMLD"""
-    
-    def __init__(self, score_net, sigma_min=0.01, sigma_max=50):
-        self.score_net = score_net
-        self.sigma_min = sigma_min
-        self.sigma_max = sigma_max
-    
-    def sample(self, n_samples, dim, n_steps=1000):
-        x = np.random.randn(n_samples, dim) * self.sigma_max
-        
-        sigmas = np.exp(np.linspace(np.log(self.sigma_max), np.log(self.sigma_min), n_steps))
-        
-        for i, sigma in enumerate(sigmas):
-            score = self.score_net.score(x, sigma)
-            x = x + 0.5 * score * (sigma**2 - self.sigma_min**2) / (self.sigma_max**2 - self.sigma_min**2)
-            x = x + sigma * np.random.randn(*x.shape)
-        
-        return x
+pipeline = DDPMPipeline.from_pretrained("ddpm-cifar10-32")
+image = pipeline(num_inference_steps=50).images[0]
 ```
 
-### 8.2 对比
+---
 
-Score SDE统一了DDPM和SMLD两种方法。
+## 8. 手工实现
+
+核心简化版：
+```python
+"""
+DM 核心简化实现
+"""
+
+import torch
+import torch.nn as nn
+
+class SimpleDiffusion:
+    """简化扩散模型"""
+    
+    def __init__(self, num_timesteps=1000):
+        self.T = num_timesteps
+        # 简化的噪声调度
+        self.betas = torch.linspace(0.0001, 0.02, num_timesteps)
+        self.alphas = 1 - self.betas
+        self.alpha_hat = torch.cumprod(self.alphas)
+    
+    def add_noise(self, x0, t, noise):
+        """正向过程"""
+        alpha_hat = self.alpha_hat[t][:, None, None, None]
+        return torch.sqrt(alpha_hat) * x0 + torch.sqrt(1 - alpha_hat) * noise
+    
+    def denoise_step(self, xt, pred_noise, t):
+        """逆向过程单步"""
+        alpha = self.alphas[t]
+        alpha_hat = self.alpha_hat[t]
+        beta = self.betas[t]
+        
+        # 均值
+        mean = (xt - pred_noise * torch.sqrt(1 - alpha_hat) / alpha.sqrt()) / alpha.sqrt()
+        
+        if t > 0:
+            noise = torch.randn_like(xt)
+            return mean + torch.sqrt(beta) * noise
+        return mean
+    
+    def sample(self, unet, shape):
+        """完整采样"""
+        xt = torch.randn(shape)
+        for t in reversed(range(self.T)):
+            pred = unet(xt, t)
+            xt = self.denoise_step(xt, pred, t)
+        return xt
+```
+
+---
 
 ## 9. 可视化
 
-### 9.1 噪声调度
+```python
+import matplotlib.pyplot as plt
 
-展示不同扩散时间步的噪声水平。
-
-### 9.2 去噪轨迹
-
-展示从纯噪声到生成样本的演变。
-
-## 10. 模型评估
-
-### 10.1 指标
-
-- **FID**：Frechet Inception Distance
-- **IS**：Inception Score
-- **Precision/Recall**
-
-### 10.2 人工评估
-
-观察生成样本的清晰度和多样性。
-
-## 11. 常见问题与易错点
-
-### 11.1 数值稳定性
-
-- SDE求解需要小步长
-- 使用正确的Euler-Maruyama离散化
-
-### 11.2 超参数选择
-
-- sigma范围选择很重要
-- 步数与质量的权衡
-
-### 11.3 训练不稳定
-
-- 使用EMA
-- 调整学习率
-
-## 12. 学习总结
-
-### 12.1 核心要点
-
-1. 扩散模型基于分数匹配理论
-2. 学习数据分布的对数密度梯度
-3. 通过逆向SDE从噪声生成样本
-4. Score SDE统一了DDPM和SMLD
-
-### 12.2 关键公式
-
-**分数定义**：
-$$\nabla_x \log p(x) = \lim_{\epsilon \to 0} \frac{\nabla_x p(x)}{p(x)}$$
-
-**逆向SDE**：
-$$dx = [f(x,t) - g(t)^2 \nabla_x \log p_t(x)]dt + g(t)d\bar{w}$$
-
-**去噪分数匹配损失**：
-$$\mathcal{L} = \mathbb{E}[\lambda(\sigma) \| s_\theta(x_\sigma, \sigma) - \nabla_{x_\sigma} \log p(x_\sigma|x_0) \|^2]$$
-
-### 12.3 算法演进
-
-- 自编码器 → VAE → GAN → Flow → DDPM → Score SDE → Stable Diffusion
-- Score SDE是生成模型的理论统一框架
-
-## 13. 练习题与思考题与思考题
-
-### 13.1 基础练习题
-
-**1. 什么是分数（Score）？它与概率密度的关系是什么？**
-
-答案：分数定义为$\nabla_x \log p(x)$，表示概率密度函数对数梯度的方向。它指向概率密度增加最快的方向，可以理解为"数据流向"。
-
-**2. 为什么扩散模型的逆向过程需要学习，而前向过程可以设计？**
-
-答案：前向过程是已知的高斯扰动，我们可以写出解析形式。逆向过程是未知的且无法解析计算，因此需要用神经网络学习。分数匹配理论证明，学习逆向过程等价于学习分数函数。
-
-**3. Score SDE如何统一DDPM和SMLD？**
-
-答案：DDPM使用加性噪声，隐式定义了某种SDE；SMLD使用方差爆炸的噪声调度。Score SDE将这两种方法统一为连续SDE的不同参数化形式，通过选择不同的漂移项f和扩散项g实现。
-
-### 13.2 进阶思考题
-
-**1. 如何加速扩散模型的采样过程？**
-
-答案：
-- DDIM采样：将确定性路径与随机路径结合，减少采样步数
-- ODE求解器：使用高阶ODE求解器如Heun
-- 蒸馏：将多步采样蒸馏为少步采样
-
-**2. 如何实现条件生成？**
-
-答案：Classifier-Free Guidance (CFG)：
-$$\tilde{s}_\theta(x,c) = (1+w)s_\theta(x,c) - w \cdot s_\theta(x)$$
-其中$c$是条件（如文本），$w$是引导强度。
-
-**3. 扩散模型与GAN相比有何优势？**
-
-答案：
-- 训练稳定，无需对抗训练
-- 不易模式崩溃，多样性好
-- 生成质量高，FID领先
-- 可控性强，适合编辑任务
-
-
-### 13.3 详细答案与解析
-
-#### 练习1：概念理解
-
-**问题**：本算法的核心机制是什么？请简述其工作原理。
-
-**答案与解析**：
-
-**步骤1**：识别问题类型
-根据算法定义，这是一个[类型：监督/无监督/生成/强化学习]任务。
-
-**步骤2**：应用核心公式
-$$核心公式 = [具体公式]$$
-该公式的意义是[解释公式含义]。
-
-**步骤3**：验证答案
-代入具体数据验证：[计算过程]
-最终结果符合预期，说明理解正确。
-
-**答案**：算法的核心是通过[机制]实现[目标]，属于[算法类别]。
+def show_diffusion_process(model, x0, save_path='diffusion.png'):
+    """展示扩散过程"""
+    fig, axes = plt.subplots(1, 11, figsize=(20, 2))
+    
+    # 原始
+    axes[0].imshow(x0[0].permute(1,2,0)/2+0.5)
+    axes[0].set_title('x0')
+    axes[0].axis('off')
+    
+    # 加噪
+    for i, t in enumerate([0, 100, 200, 400, 600, 800, 900, 950, 980, 999]):
+        xt, _ = model.forward_diffusion(x0, t)
+        axes[i+1].imshow(xt[0].permute(1,2,0).clamp(-1,1)/2+0.5)
+        axes[i+1].set_title(f't={t}')
+        axes[i+1].axis('off')
+    
+    plt.tight_layout()
+    plt.savefig(save_path)
+    plt.show()
+```
 
 ---
 
-#### 练习2：手动计算
+## 10. 评估
 
-**问题**：给定数据[X=具体值, y=具体值]，手动计算[算法名]的[参数/结果]。
-
-**答案与解析**：
-
-**步骤1**：准备数据
-$X = \begin{bmatrix} x_{11} & x_{12} \\ x_{21} & x_{22} \end{bmatrix} = \begin{bmatrix} 1 & 2 \\ 3 & 4 \end{bmatrix}$  
-$y = \begin{bmatrix} y_1 \\ y_2 \end{bmatrix} = \begin{bmatrix} 3 \\ 7 \end{bmatrix}$
-
-**步骤2**：应用算法步骤
-根据[算法名]的定义，计算第一步：
-$$第一步 = [具体公式代入] = [数值]$$
-
-**步骤3**：继续计算
-$$第二步 = [公式] = [结果]$$
-
-**步骤4**：得到最终答案
-$$最终结果 = [综合计算] = [具体数值]$$
-
-**验证**：将结果带回原式检验 $[验证过程]$，确认正确。
+```python
+def evaluate_fid(real_images, generated_images):
+    """FID分数评估"""
+    from pytorch_fid.fid_score import calculate_fid
+    return calculate_fid(real_images, generated_images)
+```
 
 ---
 
-#### 思考题：改进分析
+## 11. 常见问题
 
-**问题**：本算法在[特定场景]下存在哪些局限性？请提出改进方案。
+### 11.1 生成质量差
+- 增加T步数
+- 检查UNet架构
 
-**答案与解析**：
+### 11.2 训练慢
+- 减小图像分辨率
+- 使用DDIM采样
 
-**局限性分析**：
-1. **局限性1**：[具体表现]，原因是[原因解释]
-2. **局限性2**：[具体表现]，原因是[原因解释]
+---
 
-**改进方案对比**：
+## 12. 总结
 
-| 改进方法 | 原理 | 优势 | 代价 |
-|---------|------|------|------|
-| 方法A | [原理] | [好处] | [额外成本] |
-| 方法B | [原理] | [好处] | [额外成本] |
-| 方法C | [原理] | [好处] | [额外成本] |
+### 核心要点
+1. **两阶段**：正向加噪+逆向去噪
+2. **预测噪声**：简化训练目标
+3. **UNet**：时间条件网络
+4. **多步生成**：高质量但慢
 
-**推荐方案**：在实际应用中优先考虑[方法A]，因为[理由]。
-## 14. 学习路径建议建议
+### 算法链
+```
+DM → DDPM → Stable Diffusion → SDXL
+    ↓
+  DDIM（加速）
+```
 
-### 14.1 前置知识
+---
 
-- 概率论基础（条件概率、贝叶斯定理）
-- 随机过程基础（随机微分方程）
-- 神经网络（CNN、U-Net）
-- DDPM基础
+## 13. 练习题
 
-### 14.2 平行学习
+**习题1**：正向加噪公式
 
-- 生成模型基础（VAE、GAN、Flow）
-- 得分模型（Score Matching）
-- 神经ODE
+<details>
+<summary>答案</summary>
 
-### 14.3 进阶方向
+$$x_t = \sqrt{\bar{\alpha}_t}x_0 + \sqrt{1-\bar{\alpha}_t}\epsilon$$
 
-1. **改进架构**：DiT (Diffusion Transformer)
-2. **加速采样**：DDIM、LCM
-3. **条件生成**：Classifier-Free Guidance
-4. **视频生成**：Video Diffusion Models
-5. **3D生成**：Point-E、Zero123
+</details>
 
-### 14.4 推荐资源
+**习题2**：为什么预测噪声而非重建？
 
-**论文**：
-1. Song et al. "Score-Based Generative Modeling through Stochastic Differential Equations" (ICLR 2021) - Score SDE
-2. Ho et al. "Denoising Diffusion Probabilistic Models" (NeurIPS 2020) - DDPM
-3. Rombach et al. "High-Resolution Image Synthesis with Latent Diffusion Models" (CVPR 2022) - Stable Diffusion
+<details>
+<summary>答案</summary>
 
-**课程**：
-1. DeepMind's "Generative Models" course
-2. Stanford CS236: Deep Generative Models
-3. Lil'Log's blog on Diffusion Models
+预测噪声目标更简单（与t相关），训练更稳定。
 
-**代码**：
-1. denoising-diffusion-probabilistic-models (原始DDPM)
-2. openai/guided-diffusion (CLIP-guided)
-3. CompVis/stable-diffusion (Latent Diffusion)
+</details>
+
+---
+
+## 14. 学习路径
+
+- 初级：理解原理，运行demo
+- 中级：实现UNet，调参
+- 高级：Latent DM，ControlNet
+
+### 推荐资源
+- **论文**：Ho et al. "Denoising Diffusion Probabilistic Models" (2020)
+- **代码**：https://github.com/hojonathanho/diffusion

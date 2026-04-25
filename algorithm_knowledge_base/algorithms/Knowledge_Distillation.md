@@ -392,3 +392,272 @@ $$最终结果 = f(第一计算, 第二计算) = [最终值]$$
 ## 14. 学习路径建议建议
 
 学习知识蒸馏建议按照以下路径进行：先理解分类任务和softmax；学习知识蒸馏的原理和暗知识；实践完整的蒸馏流程；学习温度和α的调节；结合其他压缩技术。
+
+---
+
+## 补充材料：知识蒸馏变体与扩展
+
+### A1. 自蒸馏（Self-Distillation）
+
+自蒸馏使用模型自身作为教师：
+
+```python
+class SelfDistillation:
+    def __init__(self, model, temperature=4.0, alpha=0.5):
+        self.model = model
+        self.temperature = temperature
+        self.alpha = alpha
+        self.ema_model = copy.deepcopy(model)
+    
+    def step(self, x, y):
+        # 原始训练
+        self.model.train()
+        
+        # EMA更新
+        for ema_param, param in zip(self.ema_model.parameters(), self.model.parameters()):
+            ema_param.data.mul_(0.999).add_(param.data, alpha=0.001)
+        
+        # 计算蒸馏损失
+        with torch.no_grad():
+            teacher_logits = self.ema_model(x)
+        
+        student_logits = self.model(x)
+        
+        # 蒸馏损失
+        loss = self.compute_distillation_loss(student_logits, teacher_logits, y)
+        
+        return loss
+```
+
+### A2. 特征蒸馏（Feature Distillation）
+
+蒸馏中间层的特征：
+
+```python
+class FeatureDistillation(nn.Module):
+    def __init__(self, teacher_model, student_model, layer_mapping):
+        super().__init__()
+        self.teacher = teacher_model
+        self.student = student_model
+        self.layer_mapping = layer_mapping
+        
+        self.adapters = nn.ModuleDict()
+        for student_layer, teacher_layer in layer_mapping.items():
+            self.adapters[student_layer] = nn.Conv2d(
+                student_channels[student_layer],
+                teacher_channels[teacher_layer],
+                1
+            )
+    
+    def forward(self, x):
+        teacher_features = self.teacher.forward_intermediate(x, list(self.layer_mapping.values()))
+        student_features = self.student.forward_intermediate(x, list(self.layer_mapping.keys()))
+        
+        feature_loss = 0
+        for student_layer in self.layer_mapping.keys():
+            student_feat = self.adapters[student_layer](student_features[student_layer])
+            teacher_feat = teacher_features[self.layer_mapping[student_layer]]
+            
+            # 余弦相似度损失
+            student_norm = F.normalize(student_feat, dim=1)
+            teacher_norm = F.normalize(teacher_feat, dim=1)
+            
+            feature_loss += 1 - (student_norm * teacher_norm).sum(dim=1).mean()
+        
+        return feature_loss
+```
+
+### A3. 多教师蒸馏
+
+整合多个教师网络的知识：
+
+```python
+class MultiTeacherDistillation(nn.Module):
+    def __init__(self, teachers, student_model, weights=None):
+        super().__init__()
+        self.teachers = nn.ModuleList(teachers)
+        self.weights = weights or [1.0] * len(teachers)
+        self.student = student_model
+    
+    def forward(self, x):
+        teacher_logits_list = []
+        
+        for teacher in self.teachers:
+            teacher.eval()
+            with torch.no_grad():
+                logits = teacher(x)
+            teacher_logits_list.append(logits)
+        
+        # 加权平均
+        avg_logits = sum(w * logits for w, logits in 
+                    zip(self.weights, teacher_logits_list)) / sum(self.weights)
+        
+        student_logits = self.student(x)
+        
+        # 计算蒸馏损失
+        loss = self.compute_distillation_loss(student_logits, avg_logits)
+        
+        return loss
+```
+
+### A4. 知识蒸馏在不同模型中的应用
+
+**Transformer蒸馏**：
+```python
+class TransformerDistillation:
+    def __init__(self, teacher_transformer, student_transformer):
+        self.teacher = teacher_transformer
+        self.student = student_transformer
+    
+    def distill_attention(self, teacher_attn, student_attn):
+        """蒸馏注意力权重"""
+        return F.kl_div(
+            student_attn.log(), 
+            teacher_attn, 
+            reduction='batchmean'
+        ) * (self.temperature ** 2)
+    
+    def distill_hidden(self, teacher_hidden, student_hidden):
+        """蒸馏隐层表示"""
+        return F.mse_loss(student_hidden, teacher_hidden)
+```
+
+### A5. 知识蒸馏可视化
+
+```python
+import numpy as np
+import matplotlib.pyplot as plt
+
+def visualize_teacher_student_knowledge():
+    """可视化教师-学生知识转移"""
+    np.random.seed(42)
+    
+    num_classes = 10
+    n = 500
+    
+    # 教师知识
+    teacher_probs = np.random.dirichlet([1] * num_classes, n)
+    teacher_probs = np.abs(teacher_probs - 0.05)
+    teacher_probs = teacher_probs / teacher_probs.sum(axis=1, keepdims=True)
+    
+    # 学生初始知识
+    student_initial = np.random.dirichlet([1] * num_classes, n)
+    student_initial = student_initial / student_initial.sum(axis=1, keepdims=True)
+    
+    # 学生蒸馏后知识
+    student_distilled = teacher_probs * 0.7 + student_initial * 0.3
+    student_distilled = student_distilled / student_distilled.sum(axis=1, keepdims=True)
+    
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+    
+    # 教师概率分布
+    ax = axes[0]
+    im = ax.imshow(teacher_probs[:50], aspect='auto', cmap='Blues')
+    ax.set_title('Teacher Probabilities')
+    ax.set_xlabel('Class')
+    ax.set_ylabel('Sample')
+    plt.colorbar(im, ax=ax)
+    
+    # 学生初始
+    ax = axes[1]
+    im = ax.imshow(student_initial[:50], aspect='auto', cmap='Blues')
+    ax.set_title('Student Initial')
+    plt.colorbar(im, ax=ax)
+    
+    # 学生蒸馏后
+    ax = axes[2]
+    im = ax.imshow(student_distilled[:50], aspect='auto', cmap='Blues')
+    ax.set_title('Student After Distillation')
+    plt.colorbar(im, ax=ax)
+    
+    plt.tight_layout()
+    plt.savefig('kd_knowledge_transfer.png', dpi=150)
+    plt.show()
+
+
+def plot_temperature_effect():
+    """可视化温度对软标签的影响"""
+    np.random.seed(42)
+    
+    logits = np.random.randn(10)
+    logits[3] += 3.0
+    
+    temperatures = [1, 2, 4, 8, 16]
+    
+    fig, axes = plt.subplots(1, 5, figsize=(15, 3))
+    
+    for i, T in enumerate(temperatures):
+        probs = np.exp(logits / T) / np.exp(logits / T).sum()
+        
+        axes[i].bar(range(10), probs)
+        axes[i].set_title(f'T={T}')
+        axes[i].set_ylim(0, 1)
+        axes[i].set_xlabel('Class')
+    
+    plt.tight_layout()
+    plt.savefig('kd_temperature.png', dpi=150)
+    plt.show()
+
+
+def compare_distillation_methods():
+    """比较不同蒸馏方法"""
+    methods = ['Hard Label', 'KD', 'CoT', 'Feature KD', 'Multi-Teacher']
+    accuracies = [85.2, 91.5, 93.2, 92.8, 94.1]
+    model_sizes = [1.0, 0.3, 0.3, 0.35, 0.3]
+    
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+    
+    axes[0].bar(methods, accuracies, color='steelblue')
+    axes[0].set_ylabel('Accuracy (%)')
+    axes[0].set_title('Distillation Methods')
+    axes[0].set_ylim(80, 100)
+    axes[0].tick_params(axis='x', rotation=45)
+    
+    axes[1].bar(methods, model_sizes, color='coral')
+    axes[1].set_ylabel('Relative Size')
+    axes[1].set_title('Model Size Comparison')
+    axes[1].tick_params(axis='x', rotation=45)
+    
+    plt.tight_layout()
+    plt.savefig('kd_methods_comparison.png', dpi=150)
+    plt.show()
+
+
+def analyze_alpha_impact():
+    """��析α���数的影响"""
+    np.random.seed(42)
+    
+    alphas = np.linspace(0, 1, 20)
+    
+    # 模拟损失曲线
+    distill_losses = 0.3 + 0.2 * alphas + np.random.randn(20) * 0.02
+    hard_losses = 0.8 - 0.5 * alphas + np.random.randn(20) * 0.02
+    
+    total_losses = alphas * distill_losses + (1 - alphas) * hard_losses
+    
+    optimal_alpha = alphas[np.argmin(total_losses)]
+    
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    ax.plot(alphas, distill_losses, 'o-', label='Distill Loss')
+    ax.plot(alphas, hard_losses, 's-', label='Hard Loss')
+    ax.plot(alphas, total_losses, '^-', label='Total Loss')
+    ax.axvline(x=optimal_alpha, color='r', linestyle='--', label=f'Optimal α={optimal_alpha:.2f}')
+    
+    ax.set_xlabel('α (balance factor)')
+    ax.set_ylabel('Loss')
+    ax.set_title('Impact of α on Distillation')
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.savefig('kd_alpha_impact.png', dpi=150)
+    plt.show()
+
+
+if __name__ == '__main__':
+    visualize_teacher_student_knowledge()
+    plot_temperature_effect()
+    compare_distillation_methods()
+    analyze_alpha_impact()
+```

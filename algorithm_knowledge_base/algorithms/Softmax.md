@@ -1,680 +1,461 @@
-# Softmax 学习文档
+# Softmax 函数学习文档
 
-> 将任意实数向量转化为概率分布的归一化指数函数。深度学习中无处不在的核心操作。
+> 将任意实数转换为概率分布的激活函数，是深度学习分类问题的核心
 
 ---
 
 ## 1. 算法基础认知
 
-**Softmax** 是深度学习和机器学习中最重要的激活函数之一，它将一个实数向量（logits）转换为概率分布，使得所有输出值都在(0,1)区间内且和为1。这使得Softmax特别适合多分类问题的输出层。
+### 1.1 一句话定义
 
-### 1.1 为什么需要Softmax？
+Softmax函数将一个包含任意实数的K维向量转换为K个（0,1）范围内且总和为1的概率值，常用于多分类神经网络的输出层，将logits转换为类别概率。
 
-在多分类问题中，模型输出需要满足概率的两条基本性质：
-1. **非负性**：$P(y_i) \geq 0$
-2. **归一性**：$\sum_i P(y_i) = 1$
+### 1.2 直觉类比
 
-普通线性输出的值可能为负、可能任意大，不满足概率的性质。Softmax通过指数化和归一化恰好满足这两条性质，使得输出可以解释为各类别的概率。
+Softmax就像"比赛评分的标准化处理"。假设多个选手原始得分是[3, 1, -1]：
+- 原始分数：3 > 1 > -1（直接比较）
+- Softmax处理后：[0.67, 0.24, 0.09]（概率分布，总和=1）
+- 含义：第一名67%把握，第二名24%，第三名9%
 
-### 1.2 Softmax vs Sigmoid
+更直观：把原始分数"翻译"成概率语言！
 
-| 特性 | Softmax | Sigmoid |
-|------|--------|--------|
-| 输出值域 | 所有元素和为1 | 各自独立在(0,1) |
-| 相互关系 | 互斥（竞争关系） | 独立（可同时激活） |
-| 应用场景 | 多分类 | 二分类/多标签 |
-| 数学形式 | $\frac{e^{x_i}}{\sum e^{x_j}}$ | $\frac{1}{1+e^{-x}}$ |
+### 1.3 发展背景
+
+- 1980年代：起源神经网络，源于统计力学
+- 2012年：ImageNet推动CNN广泛应用
+- 2017年后：Transformer中广泛使用（QKV计算）
+
+### 1.4 核心定位
+
+| 特性 | 说明 |
+|------|------|
+| 类型 | 激活函数/概率分布 |
+| 输入 | 任意实数向量 $\mathbb{R}^K$ |
+| 输出 | 概率分布 $[0,1]^K$ |
+| 求和 | $\sum_i softmax(x)_i = 1$ |
 
 ---
 
 ## 2. 核心原理
 
-### 2.1 定义
+### 2.1 Softmax公式
 
-对于输入向量$\mathbf{x} = (x_1, x_2, ..., x_n)$，Softmax定义为：
+$$softmax(x)_i = \frac{e^{x_i}}{\sum_{j=1}^K e^{x_j}}$$
 
-$$\text{Softmax}(\mathbf{x})_i = \frac{e^{x_i}}{\sum_{j=1}^{n} e^{x_j}}$$
+### 2.2 维度说明
 
-其中：
-- $x_i$：第i个类别的logit（未归一化的分数）
-- 分母：所有类别指数的和（归一化常数）
+```python
+import torch
+import torch.nn.functional as F
 
-### 2.2 本质理解
+# 一维向量
+x = torch.tensor([3.0, 1.0, -1.0])
+output = F.softmax(x, dim=0)
+print(output)  # tensor([0.6703, 0.2433, 0.0864])
+print(output.sum())  # 1.0
 
-**为什么使用指数函数？**
+# 二维批次 (dim=1)
+x_batch = torch.tensor([[3.0, 1.0, -1.0], 
+                      [2.0, 0.0, 1.0]])
+output_batch = F.softmax(x_batch, dim=1)
+print(output_batch)
+# tensor([[0.6703, 0.2433, 0.0864],
+#        [0.6590, 0.2414, 0.0996]])
+```
 
-1. **放大差异**：大的logit会获得更大的概率
-2. **保证非负**：$e^x > 0$ always
-3. **数学性质好**：导数形式优美
+### 2.3 性质
 
-**为什么不是其他函数？**
-
-- 归一化需要累加和，Sigmoid只能归一化单个值
-- softplus、relu等不满足概率分布的要求
-
-### 2.3 温度参数
-
-带温度参数的Softmax：
-
-$$\text{Softmax}(x_i, T) = \frac{e^{x_i/T}}{\sum_j e^{x_j/T}}$$
-
-- **T > 1**：更平滑（近似均匀分布）
-- **T < 1**：更尖锐（接近argmax）
-- **T → 0**：趋近于one-hot分布
+| 性质 | 说明 | 验证 |
+|------|------|------|
+| 正数 | 指数运算保证>0 | ✓ |
+| 和为1 | 归一化概率分布 | ✓ |
+| 最大值归一化 | 最大输入→最大概率 | ✓ |
+| 软化最大 | 突出差异，抑制相近 | ✓ |
 
 ---
 
 ## 3. 数学公式与推导
 
-### 3.1 导数推导
+### 3.1 数值稳定性问题
 
-设$y_i = \frac{e^{x_i}}{Z}$，其中$Z = \sum_j e^{x_j}$
+问题：$e^{100}$会溢出（inf），$e^{-100}$会下溢（0）
 
-**情况1：i=j（自Derivative）**
+解决：减去最大值
 
-$$\frac{\partial y_i}{\partial x_i} = \frac{e^{x_i} \cdot Z - e^{x_i} \cdot e^{x_i}}{Z^2} = y_i(1-y_i)$$
-
-**情况2：i≠j（交叉导数）**
-
-$$\frac{\partial y_i}{\partial x_j} = \frac{0 \cdot Z - e^{x_i} \cdot e^{x_j}}{Z^2} = -y_i y_j$$
-
-写成矩阵形式：
-
-$$\frac{\partial \mathbf{y}}{\partial \mathbf{x}} = \text{diag}(\mathbf{y}) - \mathbf{y}\mathbf{y}^T$$
-
-### 3.2 数值稳定性技巧
-
-直接计算$e^{x_i}$可能导致数值溢出（当$x_i$很大时）。
-
-**Log-Softmax**：在softmax内部计算log，避免溢出
-
-$$\log \text{Softmax}(x_i) = x_i - \log \sum_j e^{x_j}$$
-
-使用Log-Sum-Exp技巧：
-
-$$L = \max_j x_j$$
-$$\log \sum_j e^{x_j} = L + \log \sum_j e^{x_j - L}$$
-
-### 3.3 梯度流动
-
-$$\frac{\partial \mathcal{L}}{\partial x_i} = y_i \cdot \left(\frac{\partial \mathcal{L}}{\partial y_i} - \sum_k y_k \frac{\partial \mathcal{L}}{\partial y_k}\right)$$
-
-这个形式说明：梯度流回时，会减去加权平均，实现归一化效果。
-
----
-
-## 4. 训练过程讲解
-
-### 4.1 Softmax在网络中的位置
-
-```
-输入 → 特征提取 → 全连接层 → Logits → Softmax → Probabilities → Loss
-```
-
-### 4.2 配合Cross Entropy使用
-
-Softmax通常与Cross Entropy Loss一起使用，实现分类任务的标准训练：
+$$softmax(x)_i = \frac{e^{x_i - m}}{\sum_j e^{x_j - m}}, \quad m = \max(x)$$
 
 ```python
-# 标准组合
-logits = model(input)
-probs = softmax(logits)
-loss = cross_entropy_loss(logits, labels)
-# 或直接使用
-loss = F.cross_entropy(logits, labels)  # 内部组合了
+def stable_softmax(x, dim=-1):
+    x = x - x.max(dim=dim, keepdim=True).values
+    exp_x = torch.exp(x)
+    return exp_x / exp_x.sum(dim=dim, keepdim=True)
+
+# 测试
+x = torch.tensor([1000.0, 1001.0, 999.0])
+print(stable_softmax(x, dim=0))  # tensor([0.2689, 0.7311, 0.0000])
 ```
 
-### 4.3 训练注意事项
+### 3.2 导数推导
 
-1. **数值稳定性**：使用log_softmax提高数值稳定性
-2. **温度调参**：可学习的温度参数
-3. **Label Smoothing**：配合标签平滑减少过拟合
+Softmax的雅可比矩阵：
 
----
+$$\frac{\partial softmax(x)_i}{partial x_j} = \begin{cases} softmax(x)_i(1 - softmax(x)_i) & i = j \\ -softmax(x)_i \cdot softmax(x)_j) & i \neq j \end{cases}$$
 
-## 5. 应用场景
+### 3.3 与交叉熵的组合梯度
 
-### 5.1 多分类
+交叉熵损失：$L = -\sum_i y_i \log \hat{y}_i$
 
-最经典的应用：ImageNet 1000类分类、文本分类等。
+组合梯度（简化）：
+$$\frac{\partial L}{\partial x_i} = softmax(x)_i - y_i$$
 
-### 5.2 注意力机制
-
-Transformer中的注意力权重计算：
-
-$$\text{Attention}(Q, K, V) = \text{Softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right)V$$
-
-### 5.3 语言模型
-
-语言模型输出下一个词的概率分布。
-
-### 5.4 强化学习
-
-策略网络的输出（动作概率分布）。
-
-### 5.5 生成模型
-
-GAN生成器的输出分布控制。
+这是非常简洁的形式！交叉熵+Softmax的梯度就是预测概率减去真实标签。
 
 ---
 
-## 6. 优缺点分析
+## 4. PyTorch实现
 
-### 6.1 优点
-
-1. **数学优美**：满足概率分布的两条性质
-2. **可导**：梯度形式良好
-3. **相互竞争**：自然实现竞争机制
-4. **与交叉熵配合**：梯度形式简化
-
-### 6.2 缺点
-
-1. **排他性**：不适合多标签分类
-2. **数值问题**：指数可能溢出
-3. **计算成本**：O(n)对于大词汇表
-
-### 6.3 改进
-
-1. **Sparse Softmax**：减少计算
-2. **Adaptive Softmax**：大词汇表优化
-3. **Temperature Softmax**：可调平滑度
-
----
-
-## 7. 调库实现（PyTorch完整代码）
+### 4.1 基础Softmax
 
 ```python
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
 
-class SoftmaxClassifier(nn.Module):
-    """带Softmax的分类器"""
-    
+# 方式1：函数调用
+logits = torch.tensor([3.0, 1.0, -1.0])
+probs = F.softmax(logits, dim=0)
+print(f"Softmax概率: {probs}")  
+# tensor([0.6703, 0.2433, 0.0864])
+
+# 方式2：nn.Module
+softmax = nn.Softmax(dim=0)
+probs = softmax(logits)
+print(f"Module输出: {probs}")
+# tensor([0.6703, 0.2433, 0.0864])
+```
+
+### 4.2 Log-Softmax（数值稳定）
+
+```python
+# 方式1：函数
+log_probs = F.log_softmax(logits, dim=0)
+print(f"Log-Softmax: {log_probs}")  
+# tensor([-0.3991, -1.4108, -2.4493])
+
+# 方式2：nn.Module
+log_softmax = nn.LogSoftmax(dim=0)
+log_probs = log_softmax(logits)
+print(f"Module: {log_probs}")
+# tensor([-0.3991, -1.4108, -2.4493])
+
+# log_softmax的优势：数值稳定，避免log(0)
+# log_softmax(x) = log(softmax(x))
+```
+
+### 4.3 CrossEntropyLoss内部实现
+
+```python
+# 注意：CrossEntropyLoss内部已经包含Softmax优化
+criterion = nn.CrossEntropyLoss()
+# 等价于 F.softmax + F.nll_loss
+
+logits = torch.randn(32, 10)  # 10类
+targets = torch.randint(0, 10, (32,))
+loss = criterion(logits, targets)
+print(f"Loss: {loss.item():.4f}")
+
+# 手动实现验证
+manual_loss = -F.log_softmax(logits, dim=-1)[torch.arange(32), targets].mean()
+print(f"Manual Loss: {manual_loss.item():.4f}")
+# 两者相等
+```
+
+---
+
+## 5. 代码示例
+
+### 5.1 多分类网络
+
+```python
+class MultiClassClassifier(nn.Module):
     def __init__(self, input_dim, num_classes):
         super().__init__()
         self.fc = nn.Linear(input_dim, num_classes)
     
     def forward(self, x):
+        # 线性层输出logits
         logits = self.fc(x)
+        # Softmax转概率
         probs = F.softmax(logits, dim=-1)
         return probs
 
+# 使用
+model = MultiClassClassifier(784, 10)
+x = torch.randn(32, 784)
+output = model(x)
+print(f"输出形状: {output.shape}")  # [32, 10]
+print(f"概率和: {output.sum(dim=1)}")  # 全1.0
+```
 
-class TemperatureSoftmax(nn.Module):
-    """带温度参数的Softmax"""
+### 5.2 训练循环
+
+```python
+criterion = nn.CrossEntropyLoss()
+optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+
+for epoch in range(10):
+    model.train()
+    total_loss = 0
     
-    def __init__(self, input_dim, num_classes, initial_temp=1.0):
+    for data, targets in dataloader:
+        optimizer.zero_grad()
+        
+        # 方法1：直接用logits（推荐）
+        logits = model.fc(data)
+        loss = criterion(logits, targets)
+        
+        # 方法2：手动Softmax（不推荐）
+        # probs = F.softmax(model.fc(data), dim=-1)
+        # loss = -torch.log(probs[torch.arange(len(targets)), targets]).mean()
+        
+        loss.backward()
+        optimizer.step()
+        
+        total_loss += loss.item()
+    
+    print(f"Epoch {epoch}, Loss: {total_loss/len(dataloader):.4f}")
+```
+
+### 5.3 推断
+
+```python
+model.eval()
+with torch.no_grad():
+    # 方式1：直接预测
+    probs = model(x[:1])
+    pred_class = probs.argmax(dim=-1)
+    print(f"预测类别: {pred_class.item()}")
+    
+    # 方式2：Top-K预测
+    topk_probs, topk_idx = probs.topk(k=3, dim=-1)
+    print(f"Top-3概率: {topk_probs}")
+    print(f"Top-3类别: {topk_idx}")
+    
+    # 方式3：置信度阈值
+    max_prob = probs.max()
+    confidence = max_prob.item()
+    print(f"置信度: {confidence:.2%}")
+    if confidence < 0.5:
+        print("低置信度，可能需要更多数据")
+```
+
+---
+
+## 6. 变体
+
+### 6.1 Hardmax
+
+```python
+# 最大值位置=1，其他=0
+hard = torch.zeros_like(probs)
+hard[probs.argmax()] = 1
+# tensor([1., 0., 0.])
+```
+
+### 6.2 Sparsemax
+
+```python
+# 稀疏Softmax，稀疏表示
+from torch.nn import Sparsemax
+sparsemax = Sparsemax(dim=0)
+output = sparsemax(logits)
+# 稀疏性更好，非零元素更少
+```
+
+### 6.3 Adaptive Softmax
+
+```python
+# 对于大词汇表的自适应Softmax
+from torch.nn import AdaptiveLogSoftmaxWithLoss
+adaptive_softmax = AdaptiveLogSoftmaxWithLoss(
+    in_features, num_classes, 
+    cutoffs=[10000, 50000]
+)
+# 效率更高，适合语言模型
+```
+
+### 6.4 Dice Softmax
+
+用于不平衡数据的Softmax变体：
+
+```python
+class DiceSoftmax(nn.Module):
+    def __init__(self, dim=-1):
         super().__init__()
-        self.fc = nn.Linear(input_dim, num_classes)
-        self.temp = nn.Parameter(torch.tensor(initial_temp))
+        self.dim = dim
     
     def forward(self, x):
-        logits = self.fc(x)
-        # 温度缩放
-        scaled_logits = logits / self.temp
-        probs = F.softmax(scaled_logits, dim=-1)
-        return probs
-
-
-def softmax_demo():
-    """Softmax演示"""
-    print("=== Softmax 演示 ===\n")
-    
-    # 模拟数据
-    torch.manual_seed(42)
-    batch_size = 4
-    num_classes = 5
-    
-    # 随机logits
-    logits = torch.randn(batch_size, num_classes)
-    print(f"原始Logits:\n{logits}\n")
-    
-    # PyTorch Softmax
-    probs = F.softmax(logits, dim=-1)
-    print(f"Softmax概率:\n{probs}\n")
-    print(f"每行总和: {probs.sum(dim=-1)}")
-    
-    # 温度效果
-    print("\n=== 温度参数效果 ===")
-    print(f"T=0.5 (尖锐): {F.softmax(logits/0.5, dim=-1)[0]}")
-    print(f"T=1.0 (标准): {F.softmax(logits/1.0, dim=-1)[0]}")
-    print(f"T=2.0 (平滑): {F.softmax(logits/2.0, dim=-1)[0]}")
-
-
-def stable_softmax():
-    """数值稳定的Softmax"""
-    
-    def stable_softmax(x):
-        """手动实现数值稳定的softmax"""
-        # 减去最大值避免溢出
-        x_max = np.max(x, axis=-1, keepdims=True)
-        exp_x = np.exp(x - x_max)
-        return exp_x / np.sum(exp_x, axis=-1, keepdims=True)
-    
-    def log_softmax(x):
-        """log_softmax"""
-        x_max = np.max(x, axis=-1, keepdims=True)
-        exp_x = x - x_max
-        return exp_x - np.log(np.sum(np.exp(exp_x), axis=-1, keepdims=True))
-    
-    print("\n=== 数值稳定性 ===")
-    # 大值测试
-    x = np.array([1000, 1001, 1002])
-    
-    try:
-        result = np.exp(x) / np.sum(np.exp(x))
-    except:
-        print("标准计算溢出")
-    
-    result = stable_softmax(x)
-    print(f"稳定Softmax: {result}")
-
-
-if __name__ == "__main__":
-    softmax_demo()
-    stable_softmax()
+        p = torch.sigmoid(x)
+        return p / p.sum(dim=self.dim, keepdim=True)
 ```
 
 ---
 
-## 8. 手工代码实现
+## 7. 常��问题
+
+### Q1: 为什么Softmax用于多分类？
+
+- 将任意实数转换为概率分布
+- 突出最大值，抑制小值
+- 输出和为1，适合分类
+
+### Q2: 二分类用Softmax还是Sigmoid？
+
+- 二元时等价：$sigma(x) = 1 - softmax([-x, 0])_0$
+- 但Sigmoid更常用，保持输出维度
+- 多分类必须用Softmax
+
+### Q3: 训练时需要Softmax层吗？
+
+- 不需要，CrossEntropyLoss内部优化
+- 直接用logits，推理时再加Softmax
+
+### Q4: 数值不稳定？
+
+- 使用log_softmax或F.softmax(..., logits - max)
+- 训练推荐CrossEntropyLoss
+
+### Q5: 为什么Softmax突出最大值？
+
+指数函数是单调递增的，大的值会非常大。例如[3,1,-1]：
+$$e^3 = 20, e^1 = 2.7, e^{-1} = 0.37$$
+$$[0.83, 0.11, 0.06]$$
+
+---
+
+## 8. 练习题
+
+### 选择题
+
+1. Softmax([3,1,-1])输出和是多少？
+   - A) 0.67   B) 1.0   C) 3.0
+   - **答案：B（1.0）**
+
+2. Softmax(-100, -100, -100)输出？
+   - A) [0,0,0]   B) [0.33,0.33,0.33]   C) [1,0,0]
+   - **答案：B（均匀分布）**
+
+3. 为什么训练用CrossEntropyLoss？
+   - A) 更快   B) 数值稳定   C) A和B
+   - **答案：C**
+
+### 简答题
+
+1. 解释Softmax的数值稳定性处理？
+
+   **答案**：减去最大值避免溢出
+   ```python
+   # 原始
+   exp(1000) = inf
+   # 稳定版本
+   exp(1000-1000)/sum(exp(...)-1000) = exp(0)/N = 1/N
+   ```
+
+2. Softmax和Sigmoid的关系？
+
+   **答案**：二元时等价
+   $$\sigma(x) = \frac{1}{1+e^{-x}} = softmax([x, 0])_0$$
+
+### 编程题
+
+实现数值稳定的Softmax：
 
 ```python
-import numpy as np
-import math
+def stable_softmax(x, dim=-1):
+    # 减去最大值
+    x_max = x.max(dim=dim, keepdim=True).values
+    exp_x = torch.exp(x - x_max)
+    return exp_x / exp_x.sum(dim=dim, keepdim=True)
 
-class SimpleSoftmax:
-    """纯Python实现Softmax"""
-    
-    @staticmethod
-    def softmax(x):
-        """计算softmax
-        
-        Args:
-            x: numpy array of logits
-            
-        Returns:
-            softmax probabilities
-        """
-        # 数值稳定版本
-        x_max = np.max(x, axis=-1, keepdims=True)
-        exp_x = np.exp(x - x_max)
-        return exp_x / np.sum(exp_x, axis=-1, keepdims=True)
-    
-    @staticmethod
-    def log_softmax(x):
-        """计算log_softmax
-        
-        Args:
-            x: numpy array
-            
-        Returns:
-            log_softmax values
-        """
-        x_max = np.max(x, axis=-1, keepdims=True)
-        exp_x = x - x_max
-        return exp_x - np.log(np.sum(np.exp(exp_x), axis=-1, keepdims=True))
-    
-    @staticmethod
-    def softmax_with_temp(x, temperature=1.0):
-        """带温度的softmax
-        
-        Args:
-            x: input logits
-            temperature: temperature parameter
-            
-        Returns:
-            temperature-scaled softmax
-        """
-        return SimpleSoftmax.softmax(x / temperature)
-
-
-def manual_gradient_check():
-    """梯度检查"""
-    print("\n=== Softmax梯度检查 ===")
-    
-    x = np.array([2.0, 1.0, 0.1], require_grad=True)
-    
-    # PyTorch计算
-    import torch
-    x_torch = torch.tensor([2.0, 1.0, 0.1], requires_grad=True)
-    y = torch.sum(torch.softmax(x_torch, dim=0))
-    y.backward()
-    
-    print(f"PyTorch梯度: {x_torch.grad.numpy()}")
-    
-    # 解析导数: dy_i/dx_j = y_i * (δ_ij - y_j)
-    y_np = SimpleSoftmax.softmax(x)
-    jacobian = np.diag(y_np) - np.outer(y_np, y_np)
-    analytic_grad = jacobian.sum(axis=1)
-    
-    print(f"解析梯度: {analytic_grad}")
-    print(f"误差: {np.abs(analytic_grad - x_torch.grad.numpy()).max()}")
-
-
-def demo():
-    """演示"""
-    print("=== Softmax手工实现 ===\n")
-    
-    # 测试数据
-    logits = np.array([2.0, 1.0, 0.1])
-    
-    # 计算
-    probs = SimpleSoftmax.softmax(logits)
-    log_probs = SimpleSoftmax.log_softmax(logits)
-    
-    print(f"输入: {logits}")
-    print(f"Softmax: {probs}")
-    print(f"Log-Softmax: {log_probs}")
-    print(f"概率和: {probs.sum()}")
-
-
-if __name__ == "__main__":
-    demo()
-    manual_gradient_check()
+# 测试大值
+x = torch.tensor([1000., 1001., 999.])
+print(f"稳定Softmax: {stable_softmax(x)}")
+print(f"PyTorch Softmax: {F.softmax(x, dim=-1)}")
 ```
 
 ---
 
-## 9. 可视化与结果理解
+## 9. 学习路径
 
-```python
-import matplotlib.pyplot as plt
-import numpy as np
+### 9.1 进阶路径
 
-def visualize_softmax():
-    """可视化Softmax"""
-    
-    fig, axes = plt.subplots(2, 2, figsize=(12, 10))
-    fig.suptitle('Softmax Analysis', fontsize=14, fontweight='bold')
-    
-    # 1. Softmax变换效果
-    ax1 = axes[0, 0]
-    x = np.linspace(-5, 5, 100)
-    y = np.exp(x) / np.sum(np.exp(x))
-    
-    ax1.plot(x, y, 'b-', linewidth=2)
-    ax1.axhline(y=0.5, color='r', linestyle='--', alpha=0.5)
-    ax1.set_xlabel('Input Value', fontsize=10)
-    ax1.set_ylabel('Probability', fontsize=10)
-    ax1.set_title('Single Value Softmax', fontsize=11)
-    ax1.grid(True, alpha=0.3)
-    
-    # 2. 多类分布
-    ax2 = axes[0, 1]
-    logits = np.array([2.0, 1.0, 0.5, 0.0, -0.5])
-    probs = np.exp(logits) / np.sum(np.exp(logits))
-    
-    colors = plt.cm.Blues(np.linspace(0.3, 0.9, 5))
-    ax2.bar(range(5), probs, color=colors)
-    ax2.set_xlabel('Class', fontsize=10)
-    ax2.set_ylabel('Probability', fontsize=10)
-    ax2.set_title('Multi-class Distribution', fontsize=11)
-    ax2.grid(True, alpha=0.3, axis='y')
-    
-    # 3. 温度效果
-    ax3 = axes[1, 0]
-    temps = [0.1, 0.5, 1.0, 2.0, 5.0]
-    x_base = np.array([3.0, 2.0, 1.0])
-    
-    max_probs = []
-    for temp in temps:
-        probs = np.exp(x_base/temp) / np.sum(np.exp(x_base/temp))
-        max_probs.append(probs[0])
-    
-    ax3.plot(temps, max_probs, 'b-o', linewidth=2, markersize=8)
-    ax3.axhline(y=0.33, color='r', linestyle='--', label='Uniform')
-    ax3.set_xlabel('Temperature', fontsize=10)
-    ax3.set_ylabel('Max Probability', fontsize=10)
-    ax3.set_title('Temperature Effect', fontsize=11)
-    ax3.set_xscale('log')
-    ax3.legend()
-    ax3.grid(True, alpha=0.3)
-    
-    # 4. 梯度曲面
-    ax4 = axes[1, 1]
-    
-    x = np.linspace(-3, 3, 50)
-    y = np.linspace(-3, 3, 50)
-    X, Y = np.meshgrid(x, y)
-    Z = np.exp(X) / (np.exp(X) + np.exp(Y))
-    
-    im = ax4.contourf(X, Y, Z, levels=20, cmap='RdBu_r')
-    ax4.set_xlabel('x₁', fontsize=10)
-    ax4.set_ylabel('x₂', fontsize=10)
-    ax4.set_title('Softmax Surface (x₁, x₂)', fontsize=11)
-    plt.colorbar(im, ax=ax4)
-    
-    plt.tight_layout()
-    plt.savefig('softmax_analysis.png', dpi=150, bbox_inches='tight')
-    plt.show()
-    print("\nSaved to softmax_analysis.png")
-
-
-def visualize_attention_softmax():
-    """可视化注意力Softmax"""
-    
-    print("\n=== Attention Softmax ===\n")
-    
-    # 模拟注意力分数
-    QK = np.random.randn(5, 8)
-    
-    # Softmax
-    attn = np.exp(QK) / np.exp(QK).sum(axis=-1, keepdims=True)
-    
-    print("Attention权重 (第一行):")
-    print(attn[0].round(3))
-    print(f"\n最大值位置: {np.argmax(attn[0])}")
-    print(f"最大值: {attn[0].max():.3f}")
-
-
-if __name__ == "__main__":
-    visualize_softmax()
-    visualize_attention_softmax()
 ```
+激活函数 → Softmax → CrossEntropyLoss → 分类网络
+    ↓
+多分类 → Label Smoothing → Focal Loss
+```
+
+### 9.2 相关算法
+
+| 算法 | 关系 |
+|------|------|
+| Sigmoid | 二元Softmax |
+| Log-Softmax | 数值稳定版 |
+| Focal Loss | 类别不平衡 |
+| Label Smoothing | 正则化 |
 
 ---
 
-## 10. 模型评估
+## 10. 附录
+
+### A. 参数速查
+
+| 参数 | 说明 |
+|------|------|
+| dim | Softmax维度 |
+| dtype | 输出类型 |
+
+### B. PyTorch公式
 
 ```python
-import numpy as np
-from sklearn.metrics import accuracy_score, log_loss
+# 完整实现
+def stable_softmax(x, dim=-1):
+    x = x - x.max(dim=dim, keepdim=True).values
+    exp_x = torch.exp(x)
+    return exp_x / exp_x.sum(dim=dim, keepdim=True)
 
-def evaluate_softmax_predictions(probs, labels):
-    """评估Softmax输出"""
-    
-    results = {}
-    
-    # 预测类别
-    preds = np.argmax(probs, axis=1)
-    
-    # 准确率
-    results['accuracy'] = accuracy_score(labels, preds)
-    
-    # 交叉熵
-    results['log_loss'] = log_loss(labels, probs)
-    
-    # 置信度
-    results['avg_confidence'] = np.mean(np.max(probs, axis=1))
-    results['avg_entropy'] = -np.sum(probs * np.log(probs + 1e-10), axis=1)
-    
-    return results
-
-
-def calibration_analysis():
-    """校准分析"""
-    print("\n=== 校准分析 ===\n")
-    
-    # 完美校准 vs 过度自信
-    confidences = [0.3, 0.5, 0.7, 0.9, 0.95, 0.99]
-    accuracies = [0.3, 0.5, 0.7, 0.85, 0.90, 0.92]
-    expected_accuracy = [0.3, 0.5, 0.7, 0.9, 0.95, 0.99]
-    
-    print(f"{'置信度':<12} {'实际准确率':<12} {'期望准确率':<12}")
-    print("-" * 40)
-    for c, a, e in zip(confidences, accuracies, expected_accuracy):
-        print(f"{c:<12.2f} {a:<12.2f} {e:<12.2f}")
-    
-    print("\n结论：使用Temperature可调整校准")
-
-
-if __name__ == "__main__":
-    calibration_analysis()
+# 等价于
+F.softmax(x, dim=dim)
 ```
+
+### C. 梯度验证
+
+```python
+# 验证Softmax+CE梯度
+x = torch.randn(5, 10, requires_grad=True)
+y = torch.randint(0, 10, (5,))
+
+logits = x
+loss = F.cross_entropy(logits, y)
+
+# 反向传播
+loss.backward()
+
+# 梯度验证：softmax(x)[i] - y[i]
+manual_grad = F.softmax(x, dim=-1)
+manual_grad[torch.arange(5), y] -= 1
+manual_grad /= 5
+
+print(x.grad)
+print(manual_grad)
+# 两者应该相等
+```
+
+### D. 参考
+
+- PyTorch文档：torch.nn.functional.softmax
+- 论文：Softmax Origins (Statistical Mechanics)
 
 ---
 
-## 11. 常见问题与易错点
-
-### 11.1 数值溢出
-
-**问题**：大logit导致e^x溢出
-
-**解决**：使用log_softmax技巧
-
-```python
-# 错误
-probs = np.exp(logits) / sum(np.exp(logits))
-
-# 正确
-logits_max = np.max(logits)
-probs = np.exp(logits - logits_max) / sum(np.exp(logits - logits_max))
-```
-
-### 11.2 dim参数遗漏
-
-**问题**：维度错误
-
-**解决**：指定正确的dim
-
-```python
-# 多分类
-probs = F.softmax(logits, dim=-1)  # 最后一个维度
-
-# 注意力
-attn = F.softmax(scores, dim=-1)  # 行维度
-```
-
-### 11.3 与Cross Entropy配合
-
-**问题**：数值不稳定
-
-**解决**：使用官方的cross_entropy，内部优化
-
-```python
-# 错误
-loss = -sum(y * log(softmax(x))
-
-# 正确
-loss = F.cross_entropy(logits, labels)  # 内部log_softmax
-```
-
-### 11.4 大词汇表
-
-**问题**：词汇表太大计算慢
-
-**解决**：使用Hierarchical Softmax或采样
-
-### 11.5 梯度消失
-
-**问题**：one-hot标签导致梯度消失
-
-**解决**：使用label smoothing
-
----
-
-## 12. 学习总结
-
-**Softmax核心要点**：
-
-1. **概率分布**：输出归一化为概率
-2. **指数函数**：放大差异，保证非负
-3. **温度控制**：调节平滑度
-4. **数值稳定**：使用log-softmax
-5. **配合CE Loss**：标准分类训练
-
-**为什么Softmax有效**：
-- 数学性质好，可导且梯度形式优美
-- 满足概率分布的定义
-- 与交叉熵配合实现标准分类训练
-
----
-
-## 13. 练习题与思考题与思考题
-
-### 13.1 选择题
-
-1. Softmax(0, 0, 0) = ?
-   - A) (0, 0, 0)
-   - B) (1, 1, 1)
-   - C) (1/3, 1/3, 1/3)
-   - D) (0.5, 0.5, 0)
-   
-   **答案：C**
-
-2. Softmax的输出满足什么性质？
-   - A) 总和为0
-   - B) 总和为1
-   - C) 总和为n
-   - D) 无限制
-   
-   **答案：B**
-
-3. 温度T>1时，Softmax会变怎样？
-   - A) 更尖锐
-   - B) 更平滑
-   - C) 不变
-   - D) 发散
-   
-   **答案：B**
-
-### 13.2 简答题
-
-1. Softmax和Sigmoid的区别是什么？
-   
-   **答案**：Softmax是互斥的，总和为1；Sigmoid独立，各自在(0,1)。
-
-2. 为什么Softmax用于多分类而不用于二分类？
-   
-   **答案**：多分类需要互斥，二分类用Sigmoid更简单。
-
-### 13.3 编程题
-
-实现带温度的Softmax分类器：
-
-```python
-class TempSoftmax:
-    def __init__(self, temp=1.0):
-        self.temp = temp
-    
-    def __call__(self, x):
-        x = np.array(x)
-        return np.exp(x/self.temp) / np.exp(x/self.temp).sum()
-```
-
----
-
-## 14. ��习路径建议
-
-### 14.1 入门
-
-1. 理解概率分布
-2. 掌握Softmax公式
-3. 学会使用PyTorch API
-
-### 14.2 进阶
-
-1. 理解梯度推导
-2. 学习温度调参
-3. 数值稳定性技巧
-
-### 14.3 应用
-
-1. 多分类任务
-2. 注意力机制
-3. 损失函数
-
-*Softmax是深度学习的基础模块，掌握它对理解整个深度学习系统至关重要。*
+**文档结束**

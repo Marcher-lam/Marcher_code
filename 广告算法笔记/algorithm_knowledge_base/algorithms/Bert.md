@@ -34,7 +34,7 @@ $$\text{MultiHead}(Q, K, V) = \text{Concat}(\text{head}_1, \ldots, \text{head}_h
 
 $$\text{head}_i = \text{softmax}\left(\frac{Q_i K_i^T}{\sqrt{d_k}}\right) V_i$$
 
-$$\text{FFN}(x) = \max(0, xW_1 + b_1)W_2 + b_2$$
+$$\text{FFN}(x) = \text{GELU}(xW_1 + b_1)W_2 + b_2$$
 
 注意 BERT 使用的是 **GELU** 激活函数而非 ReLU。
 
@@ -187,8 +187,8 @@ class BertEncoderBlock(nn.Module):
         )
 
     def forward(self, x, mask=None):
-        x = x + self.attn(self.ln1(x), mask)
-        x = x + self.ff(self.ln2(x))
+        x = self.ln1(x + self.attn(x, mask))
+        x = self.ln2(x + self.ff(x))
         return x
 
 class MiniBERT(nn.Module):
@@ -261,7 +261,13 @@ BERT 的注意力可视化可以展示模型关注了哪些词。例如在句子
 
 ## 12. 学习总结
 
-BERT 通过 MLM 和 NSP 两个预训练任务实现了双向上下文建模，在各类 NLP 任务上大幅刷新了纪录。其预训练+微调范式成为 NLP 的标准流程。BERT 的局限包括固定长度、非生成式、NSP 效果存疑等，后续模型如 RoBERTa、ALBERT、SpanBERT 等针对这些问题做了改进。
+BERT 的核心贡献在于通过 MLM（掩码语言模型）预训练任务打破了自回归语言模型只能单向建模的限制，实现了真正的双向上下文表示。其"预训练+微调"范式极大地降低了下游任务的标注数据需求，一个通用预训练模型即可通过少量微调适配到分类、匹配、序列标注等多种任务，标志着 NLP 进入预训练时代。
+
+BERT 的关键优势是双向理解能力强、迁移学习效果好、社区生态完善（HuggingFace），适合几乎所有 NLP 理解类任务。在广告系统中，BERT 常被用于 query 意图理解、搜索相关性匹配和 CTR 模型的文本特征提取。但它不擅长文本生成，且 512 token 的长度限制在处理长文档时需要额外策略。
+
+在知识体系中，BERT 是本库中 Transformer 编码器架构的直接应用，与 GPT（解码器）形成对比。理解 BERT 是掌握后续预训练模型（RoBERTa、ALBERT、ELECTRA）以及广告领域中基于预训练的 CTR 模型的基础。
+
+工业实践中，BERT 的微调学习率通常设置为 2e-5 到 5e-5，过大会破坏预训练权重。大规模部署时需考虑知识蒸馏（DistilBERT）或模型剪枝以降低推理延迟，中文场景使用字级别分词需注意覆盖领域专用词汇。
 
 ## 13. 练习题与思考题（含答案）
 

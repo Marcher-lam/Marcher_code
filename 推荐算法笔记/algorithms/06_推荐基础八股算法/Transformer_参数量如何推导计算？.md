@@ -210,3 +210,99 @@ LLaMA 使用 SwiGLU 激活函数，FFN 有三个线性层（gate、up、down）�
 **Q3: 如何估算训练 Transformer 所需的 GPU 显存？**
 
 显存 ≈ 参数量 × 2（fp16）× 4（Adam 优化器状态）× 1.2（梯度+激活）。例如 7B 模型需要约 7B × 2 × 4 × 1.2 ≈ 67GB，需要多卡并行或使用 DeepSpeed ZeRO 优化。
+
+# 十、不同模型架构的参数效率对比与实践启示
+
+## 10.1 主流 Transformer 模型参数分布对比
+
+| 模型 | 总参数 | Attention 占比 | FFN 占比 | Embedding 占比 | 其他 |
+|------|--------|---------------|---------|---------------|------|
+| BERT-Base (110M) | 110M | 33.3% | 66.7% | 21.4% | 0.6% |
+| GPT-2 (124M) | 124M | 33.3% | 66.7% | 40.3% | 0.6% |
+| LLaMA-7B | 6.7B | 33.3% | 49.8% | 15.5% | 1.4% |
+| Qwen2.5-7B (GQA) | 7.6B | 16.7% | 66.4% | 12.8% | 4.1% |
+| Mixtral-8x7B (MoE) | 46.7B | 33.3% | 66.7%（路由FFN） | 6.9% | 1.4% |
+
+**关键发现**：GQA 将 Attention 参数从 $4H^2$ 降至 $(2 + 2/G)H^2$（G 为分组数），使 Attention 占比减半。MoE 模型总参数大但活跃参数与稠密模型相当。
+
+## 10.2 架构设计的优缺点分析
+
+### 标准 Transformer（BERT/GPT-2 架构）
+
+**优点**：
+- 结构简单，推理优化生态成熟（FlashAttention、vLLM）
+- MHA 注意力质量最高，每个头独立 K/V
+
+**缺点**：
+- KV 缓存大（$2 \times L \times H$），长序列推理成本高
+- 参数效率一般，FFN 占比固定 2/3
+
+### GQA 架构（LLaMA-2/3, Qwen2.5）
+
+**优点**：
+- KV 缓存减少为原来的 $1/G$，推理吞吐提升 30%+
+- 保持接近 MHA 的注意力质量
+
+**缺点**：
+- 分组数 $G$ 需要调优，过小退化为 MQA（质量下降），过大退化为 MHA（无加速）
+- 训练时需要额外验证 GQA 与 MHA 的效果差距
+
+### SwiGLU FFN（LLaMA 系列）
+
+**优点**：
+- 相比 ReLU/GELU 的 FFN 效果更好（论文验证）
+- 门控机制提供更灵活的非线性
+
+**缺点**：
+- 参数量从 $8H^2$ 增至 $3 \times H \times d_{ff}$（三个线性层）
+- 计算量增加约 50%
+
+### MoE 架构（Mixtral, Qwen MoE）
+
+**优点**：
+- 总参数大但活跃参数少，推理成本低
+- 专家特化提升模型容量
+
+**缺点**：
+- 显存需求等于总参数（所有专家都需加载）
+- 路由决策增加推理延迟
+- 专家负载不均衡可能导致部分专家利用率低
+
+## 10.3 参数量对推荐系统的实践启示
+
+### 1. 推荐模型的参数预算分配
+
+推荐系统中的 Transformer 通常参数量远小于 LLM（通常 10M-1B），参数预算分配建议：
+
+| 组件 | 建议占比 | 原因 |
+|------|---------|------|
+| Embedding 层 | 40%-60% | 大量稀疏特征（用户ID、物品ID）需要大 Embedding 表 |
+| Attention 层 | 15%-20% | 序列建模核心，GQA 在短序列场景收益有限 |
+| FFN 层 | 20%-30% | 特征交叉的关键组件 |
+| 输出层 | 5%-10% | 多任务 Head |
+
+### 2. 模型选型的实际考量
+
+| 场景 | 推荐架构 | 参数量建议 | 原因 |
+|------|---------|-----------|------|
+| 召回模型 | 双塔 / SASRec | 100M-500M | 召回需要低延迟，参数不宜过大 |
+| 精排模型 | DIN / DIEN / MMoE | 500M-2B | 精排追求精度，可承受更大模型 |
+| 序列建模 | Transformer (GQA) | 50M-200M | 序列长度 <100，GQA 收益有限 |
+| 生成式推荐 | HSTU / GPT-like | 1B-10B | 需要大容量建模复杂用户行为 |
+
+### 3. 参数效率优化技巧
+
+```python
+def estimate_gpu_memory(model_params_billion, precision='fp16', optimizer='adam'):
+    bytes_per_param = 2 if precision == 'fp16' else 4
+    optimizer_multiplier = 4 if optimizer == 'adam' else 2
+    gradient_multiplier = 2
+    activation_multiplier = 1.2
+    total_gb = (model_params_billion * 1e9 * bytes_per_param *
+                (1 + optimizer_multiplier + gradient_multiplier) * activation_multiplier) / 1e9
+    return total_gb
+
+for name, size in [("推荐精排", 0.5), ("序列推荐", 0.2), ("生成式推荐", 2.0), ("LLaMA-7B", 6.7)]:
+    mem = estimate_gpu_memory(size)
+    print(f"{name} ({size}B 参数): 约 {mem:.1f} GB 显存 (fp16 + Adam)")
+```
