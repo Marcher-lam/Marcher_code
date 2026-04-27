@@ -1,191 +1,224 @@
-# 算法知识库 - 核心算法索引
+# 算法知识库索引
 
-> 本文件提供所有92个算法的快速导航，按领域分类，标注重要程度和学习优先级。
+> 本知识库基于《人工智能注意力机制：体系、模型与算法剖析》（傅罡著）整理生成。
 
-## 📚 算法分类索引
+## 目录说明
 
-### 一、基础机器学习（回归、分类、聚类）
-| 算法 | 重要度 | 学习优先级 | 文档路径 |
-|------|--------|------------|----------|
-| 线性回归 | ⭐⭐⭐ | 初级（第1周） | [线性回归.md](algorithms/线性回归.md) |
-| 岭回归 | ⭐⭐ | 初级（第1周） | [岭回归.md](algorithms/岭回归.md) |
-| LASSO回归 | ⭐⭐ | 初级（第1周） | [LASSO回归.md](algorithms/LASSO回归.md) |
-| 多项式线性回归 | ⭐⭐ | 初级（第2周） | [多项式线性回归.md](algorithms/多项式线性回归.md) |
-| 感知机 | ⭐⭐ | 初级（第2周） | [感知机.md](algorithms/感知机.md) |
-| 逻辑回归 | ⭐⭐⭐⭐ | 初级（第3周） | [逻辑回归.md](algorithms/逻辑回归.md) |
-| 二项逻辑回归 | ⭐⭐⭐ | 初级（第3周） | [二项逻辑回归.md](algorithms/二项逻辑回归.md) |
-| 多项式逻辑回归 | ⭐⭐⭐ | 初级（第3周） | [多项式逻辑回归.md](algorithms/多项式逻辑回归.md) |
-| 最大熵模型 | ⭐⭐⭐ | 初级（第4周） | [最大熵模型.md](algorithms/最大熵模型.md) |
-| 支持向量机 | ⭐⭐⭐⭐ | 初级（第4周） | [支持向量机.md](algorithms/支持向量机.md) |
-| KNN | ⭐⭐⭐ | 初级（第2周） | [KNN.md](algorithms/KNN.md) |
-| k-D tree | ⭐⭐ | 初级（第2周） | [k-D tree.md](algorithms/k-D tree.md) |
-| 朴素贝叶斯 | ⭐⭐⭐ | 初级（第3周） | [朴素贝叶斯.md](algorithms/朴素贝叶斯.md) |
-| 决策树 | ⭐⭐⭐⭐ | 初级（第4周） | [决策树.md](algorithms/决策树.md) |
-| ID3 | ⭐⭐⭐ | 初级（第4周） | [ID3.md](algorithms/ID3.md) |
-| C4.5 | ⭐⭐⭐ | 初级（第4周） | [C4.5.md](algorithms/C4.5.md) |
-| CART | ⭐⭐⭐ | 初级（第4周） | [CART.md](algorithms/CART.md) |
-| 多层感知机 | ⭐⭐⭐ | 中级（第5周） | [多层感知机.md](algorithms/多层感知机.md) |
-| 前馈神经网络 | ⭐⭐⭐ | 中级（第5周） | [前馈神经网络.md](algorithms/前馈神经网络.md) |
-
-### 二、集成学习
-| 算法 | 重要度 | 学习优先级 | 文档路径 |
-|------|--------|------------|----------|
-| AdaBoost | ⭐⭐⭐ | 中级（第6周） | [AdaBoost.md](algorithms/AdaBoost.md) |
-| GBDP | ⭐⭐⭐ | 中级（第6周） | [GBDP.md](algorithms/GBDP.md) |
-
-### 三、概率图模型
-| 算法 | 重要度 | 学习优先级 | 文档路径 |
-|------|--------|------------|----------|
-| 朴素贝叶斯 | ⭐⭐⭐ | 初级（第3周） | [朴素贝叶斯.md](algorithms/朴素贝叶斯.md) |
-| 隐马尔可夫 | ⭐⭐⭐ | 中级（第7周） | [隐马尔可夫.md](algorithms/隐马尔可夫.md) |
-| 条件随机场 | ⭐⭐⭐ | 中级（第7周） | [条件随机场.md](algorithms/条件随机场.md) |
-| 马尔可夫链蒙特卡洛 | ⭐⭐ | 中级（第8周） | [马尔可夫链蒙特卡洛.md](algorithms/马尔可夫链蒙特卡洛.md) |
-
-### 四、聚类与降维
-| 算法 | 重要度 | 学习优先级 | 文档路径 |
-|------|--------|------------|----------|
-| K-Means | ⭐⭐⭐ | 中级（第5周） | [K-Means.md](algorithms/K-Means.md) |
-| 奇异值分解 | ⭐⭐⭐ | 中级（第6周） | [奇异值分解.md](algorithms/奇异值分解.md) |
-| PCA | ⭐⭐⭐⭐ | 中级（第6周） | [PCA.md](algorithms/PCA.md) |
-| LDA | ⭐⭐⭐ | 中级（第6周） | [LDA.md](algorithms/LDA.md) |
-| LSA | ⭐⭐ | 中级（第7周） | [LSA.md](algorithms/LSA.md) |
-| NMF | ⭐⭐ | 中级（第7周） | [NMF.md](algorithms/NMF.md) |
-| PLSA | ⭐⭐ | 中级（第7周） | [PLSA.md](algorithms/PLSA.md) |
-
-### 五、EM算法
-| 算法 | 重要度 | 学习优先级 | 文档路径 |
-|------|--------|------------|----------|
-| EM | ⭐⭐⭐ | 中级（第7周） | [EM.md](algorithms/EM.md) |
-| 变分EM | ⭐⭐ | 中级（第8周） | [变分EM.md](algorithms/变分EM.md) |
-| 高斯混合EM | ⭐⭐⭐ | 中级（第7周） | [高斯混合EM.md](algorithms/高斯混合EM.md) |
-
-### 六、深度学习基础
-| 算法 | 重要度 | 学习优先级 | 文档路径 |
-|------|--------|------------|----------|
-| 前馈神经网络 | ⭐⭐⭐ | 中级（第5周） | [前馈神经网络.md](algorithms/前馈神经网络.md) |
-| 反向传播算法 | ⭐⭐⭐⭐ | 中级（第5周） | [反向传播.md](algorithms/反向传播.md) |
-| 卷积神经网络 | ⭐⭐⭐⭐ | 中级（第6周） | [卷积神经网络.md](algorithms/卷积神经网络.md) |
-| 残差神经网络 | ⭐⭐⭐⭐ | 中级（第6周） | [残差神经网络.md](algorithms/残差神经网络.md) |
-| RNN | ⭐⭐⭐⭐ | 中级（第7周） | [循环神经网络.md](algorithms/循环神经网络.md) |
-| LSTM | ⭐⭐⭐⭐ | 中级（第7周） | [LSTM.md](algorithms/LSTM.md) |
-| GRU | ⭐⭐⭐⭐ | 中级（第7周） | [GRU.md](algorithms/GRU.md) |
-| DRNN | ⭐⭐⭐ | 中级（第8周） | [DRNN.md](algorithms/DRNN.md) |
-| 注意力机制 | ⭐⭐⭐⭐⭐ | 高级（第9周） | [注意力机制.md](algorithms/注意力机制.md) |
-| 自注意力机制 | ⭐⭐⭐⭐⭐ | 高级（第9周） | [自注意力机制.md](algorithms/自注意力机制.md) |
-| 多头注意力 | ⭐⭐⭐⭐⭐ | 高级（第9周） | [多头注意力.md](algorithms/多头注意力.md) |
-| 多头潜在注意力 | ⭐⭐⭐⭐⭐ | 高级（第9周） | [多头潜在注意力.md](algorithms/多头潜在注意力.md) |
-| 分组查询注意力 | ⭐⭐⭐⭐⭐ | 高级（第9周） | [分组查询注意力.md](algorithms/分组查询注意力.md) |
-| Transformer | ⭐⭐⭐⭐⭐ | 高级（第10周） | [Transformer.md](algorithms/Transformer.md) |
-| Encoder-Decoder | ⭐⭐⭐⭐ | 高级（第10周） | [Encoder-Decoder.md](algorithms/Encoder-Decoder.md) |
-| 编码器 | ⭐⭐⭐⭐⭐ | 高级（第10周） | [编码器.md](algorithms/编码器.md) |
-
-### 七、NLP基础
-| 算法 | 重要度 | 学习优先级 | 文档路径 |
-|------|--------|------------|----------|
-| one hot | ⭐⭐ | 初级（第2周） | [One-Hot编码.md](algorithms/One-Hot编码.md) |
-| Token | ⭐⭐⭐ | 初级（第3周） | [Token.md](algorithms/Token.md) |
-| TF-IDF | ⭐⭐⭐ | 初级（第3周） | [TF-IDF.md](algorithms/TF-IDF.md) |
-| word2vec | ⭐⭐⭐⭐ | 中级（第6周） | [word2vec.md](algorithms/word2vec.md) |
-| char2vec | ⭐⭐⭐ | 中级（第6周） | [char2vec.md](algorithms/char2vec.md) |
-| glove | ⭐⭐⭐ | 中级（第6周） | [glove.md](algorithms/glove.md) |
-| 词嵌入 | ⭐⭐⭐⭐ | 中级（第6周） | [词嵌入.md](algorithms/词嵌入.md) |
-| 机器翻译 | ⭐⭐⭐⭐ | 高级（第10周） | [机器翻译.md](algorithms/机器翻译.md) |
-| BERT | ⭐⭐⭐⭐⭐ | 高级（第10周） | [BERT.md](algorithms/BERT.md) |
-| GPT | ⭐⭐⭐⭐⭐ | 高级（第10周） | [GPT.md](algorithms/GPT.md) |
-| 旋转位置编码 | ⭐⭐⭐⭐⭐ | 高级（第10周） | [旋转位置编码.md](algorithms/旋转位置编码.md) |
-
-### 八、生成模型
-| 算法 | 重要度 | 学习优先级 | 文档路径 |
-|------|--------|------------|----------|
-| AE | ⭐⭐⭐ | 中级（第7周） | [AE.md](algorithms/AE.md) |
-| VAE | ⭐⭐⭐⭐ | 中级（第7周） | [VAE.md](algorithms/VAE.md) |
-| DAE | ⭐⭐⭐ | 中级（第7周） | [DAE.md](algorithms/DAE.md) |
-| GAN | ⭐⭐⭐⭐ | 中级（第8周） | [GAN.md](algorithms/GAN.md) |
-| DCGAN | ⭐⭐⭐ | 中级（第8周） | [DCGAN.md](algorithms/DCGAN.md) |
-| 扩散模型 | ⭐⭐⭐⭐⭐ | 高级（第11周） | [扩散模型.md](algorithms/扩散模型.md) |
-| DDPM | ⭐⭐⭐⭐ | 高级（第11周） | [DDPM.md](algorithms/DDPM.md) |
-| DM | ⭐⭐⭐⭐ | 高级（第11周） | [DM.md](algorithms/DM.md) |
-| SMLD | ⭐⭐⭐ | 高级（第11周） | [SMLD.md](algorithms/SMLD.md) |
-| UNet | ⭐⭐⭐⭐ | 高级（第11周） | [UNet.md](algorithms/UNet.md) |
-
-### 九、强化学习
-| 算法 | 重要度 | 学习优先级 | 文档路径 |
-|------|--------|------------|----------|
-| MDP | ⭐⭐⭐ | 高级（第12周） | [MDP.md](algorithms/MDP.md) |
-| multi-armed bandits | ⭐⭐⭐ | 高级（第12周） | [multi-armed bandits.md](algorithms/multi-armed bandits.md) |
-| UCB | ⭐⭐⭐ | 高级（第12周） | [UCB.md](algorithms/UCB.md) |
-| Thompson Sampling | ⭐⭐⭐ | 高级（第12周） | [Thompson Sampling.md](algorithms/Thompson Sampling.md) |
-| 蒙特卡洛预测 | ⭐⭐⭐ | 高级（第12周） | [蒙特卡洛预测.md](algorithms/蒙特卡洛预测.md) |
-| TD | ⭐⭐⭐⭐ | 高级（第12周） | [TD.md](algorithms/TD.md) |
-| SARSA | ⭐⭐⭐⭐ | 高级（第12周） | [SARSA.md](algorithms/SARSA.md) |
-| Q-learning | ⭐⭐⭐⭐ | 高级（第12周） | [Q-learning.md](algorithms/Q-learning.md) |
-| DQN | ⭐⭐⭐⭐ | 高级（第13周） | [DQN.md](algorithms/DQN.md) |
-| REINFORCE | ⭐⭐⭐⭐ | 高级（第13周） | [REINFORCE.md](algorithms/REINFORCE.md) |
-| PPO | ⭐⭐⭐⭐⭐ | 高级（第13周） | [PPO.md](algorithms/PPO.md) |
-| A2C | ⭐⭐⭐⭐ | 高级（第13周） | [A2C.md](algorithms/A2C.md) |
-| DDPG | ⭐⭐⭐⭐ | 高级（第13周） | [DDPG.md](algorithms/DDPG.md) |
-| ACER | ⭐⭐⭐ | 高级（第13周） | [ACER.md](algorithms/ACER.md) |
-| SAC | ⭐⭐⭐⭐ | 高级（第13周） | [SAC.md](algorithms/SAC.md) |
-| TD3 | ⭐⭐⭐⭐ | 高级（第13周） | [TD3.md](algorithms/TD3.md) |
-| 强化学习 | ⭐⭐⭐⭐⭐ | 高级（第14周） | [强化学习.md](algorithms/强化学习.md) |
-
-### 十、大模型与多模态
-| 算法/技术 | 重要度 | 学习优先级 | 文档路径 |
-|----------|--------|------------|----------|
-| PyTorch | ⭐⭐⭐⭐⭐ | 中级（第5周） | [PyTorch.md](algorithms/PyTorch.md) |
-| DeepSeek | ⭐⭐⭐⭐⭐ | 高级（第11周） | [DeepSeek.md](algorithms/DeepSeek.md) |
-| DeepSeek-V2 | ⭐⭐⭐⭐⭐ | 高级（第11周） | [DeepSeek-V2.md](algorithms/DeepSeek-V2.md) |
-| DeepSeek-R1 | ⭐⭐⭐⭐⭐ | 高级（第11周） | [DeepSeek-R1.md](algorithms/DeepSeek-R1.md) |
-| DeepSeek-VL2 | ⭐⭐⭐⭐⭐ | 高级（第11周） | [DeepSeek-VL2.md](algorithms/DeepSeek-VL2.md) |
-| 混合专家模型 | ⭐⭐⭐⭐⭐ | 高级（第10周） | [混合专家模型.md](algorithms/混合专家模型.md) |
-| MoE | ⭐⭐⭐⭐⭐ | 高级（第10周） | [MoE.md](algorithms/MoE.md) |
-| LoRA | ⭐⭐⭐⭐⭐ | 高级（第10周） | [LoRA.md](algorithms/LoRA.md) |
-| 知识蒸馏 | ⭐⭐⭐⭐ | 高级（第10周） | [知识蒸馏.md](algorithms/知识蒸馏.md) |
-| FP8混合精度 | ⭐⭐⭐⭐ | 高级（第11周） | [FP8混合精度.md](algorithms/FP8混合精度.md) |
-| 早期融合 | ⭐⭐⭐⭐ | 高级（第11周） | [早期融合.md](algorithms/早期融合.md) |
-| 晚期融合 | ⭐⭐⭐⭐ | 高级（第11周） | [晚期融合.md](algorithms/晚期融合.md) |
-| 混合融合 | ⭐⭐⭐⭐ | 高级（第11周） | [混合融合.md](algorithms/混合融合.md) |
-| 情感分析 | ⭐⭐⭐ | 高级（第10周） | [情感分析.md](algorithms/情感分析.md) |
-| 图像识别 | ⭐⭐⭐ | 高级（第10周） | [图像识别.md](algorithms/图像识别.md) |
-| RNN-Search | ⭐⭐⭐ | 高级（第10周） | [RNN-Search.md](algorithms/RNN-Search.md) |
-
-## 🎯 学习路线图快速参考
-
-### 初级（第1-4周）
-1. 线性回归 → 岭回归 → LASSO → 多项式线性回归
-2. 感知机 → 多层感知机 → KNN → k-D tree
-3. 朴素贝叶斯 → 逻辑回归 → 二项/多项式逻辑回归 → 最大熵模型
-4. 支持向量机 → 决策树 → ID3 → C4.5 → CART
-
-### 中级（第5-8周）
-1. 前馈神经网络 → 反向传播 → 卷积神经网络 → 残差神经网络
-2. RNN → LSTM → GRU → DRNN
-3. 聚类与降维：K-Means → 奇异值分解 → PCA → LDA
-4. EM算法：EM → 变分EM → 高斯混合EM
-5. NLP基础：one hot → Token → TF-IDF → word2vec → char2vec → glove → 词嵌入
-6. 概率图模型：隐马尔可夫 → 条件随机场 → 马尔可夫链蒙特卡洛
-
-### 高级（第9-14周）
-1. 注意力机制系列：注意力机制 → 自注意力 → 多头注意力 → 多头潜在注意力 → 分组查询注意力
-2. Transformer系列：Transformer → Encoder-Decoder → 编码器 → BERT → GPT
-3. 生成模型：AE → VAE → DAE → GAN → DCGAN → 扩散模型 → DDPM → DM → SMLD → UNet
-4. 大模型：PyTorch → DeepSeek → DeepSeek-V2/R1/VL2 → 混合专家模型/MoE → LoRA → 知识蒸馏 → FP8混合精度
-5. 多模态：早期融合 → 晚期融合 → 混合融合 → 机器翻译 → 情感分析 → 图像识别
-6. 强化学习：MDP → 多臂老虎机 → UCB → Thompson Sampling → 蒙特卡洛 → TD → SARSA → Q-learning → DQN → REINFORCE → PPO → A2C → DDPG → ACER → SAC → TD3
-
-## 📊 重要度说明
-- ⭐⭐⭐⭐⭐：必学核心算法，面试高频，应用广泛
-- ⭐⭐⭐⭐：重要算法，需掌握原理和实现
-- ⭐⭐⭐：基础算法，建议掌握
-- ⭐⭐：了解即可
-
-## 🔗 相关资源
-- [项目README](../README.md) - 项目介绍和学习指南
-- [学习路线图](../roadmap.md) - 详细学习路径
-- [评估指标](../utils/metrics.md) - 回归/分类指标详解
-- [优化方法](../utils/optimization.md) - 梯度下降/正则化详解
+本知识库涵盖了注意力机制的核心理论、Transformer架构、NLP预训练模型、计算机视觉Transformer等核心内容。所有文档均采用统一的14章结构，确保学习路径的一致性。
 
 ---
-*最后更新：2026-04-24*
-*总文档数：92个*
-*覆盖领域：机器学习、深度学习、NLP、CV、强化学习、大模型*
+
+## 索引表
+
+| 序号 | 算法/模型 | 英文名 | 类别 | 文件路径 | 来源章节 |
+|------|-----------|--------|------|----------|----------|
+| 1 | 注意力机制 | Attention Mechanism | 基础理论 | ./注意力机制_Attention.md | 第1-4章 |
+| 2 | 自注意力机制 | Self-Attention | 基础理论 | ./自注意力机制_Self-Attention.md | 第4章 |
+| 3 | 多头注意力 | Multi-Head Attention | 基础理论 | ./多头注意力_Multi-Head_Attention.md | 第4章 |
+| 4 | 位置编码 | Positional Encoding | 基础理论 | ./位置编码_Positional_Encoding.md | 第4章 |
+| 5 | Transformer | Transformer | 核心架构 | ./Transformer.md | 第4章 |
+| 6 | 编码器-解码器 | Encoder-Decoder | 架构模式 | ./编码器_解码器_Encoder-Decoder.md | 第3-4章 |
+| 7 | Seq2Seq | Sequence to Sequence | 序列模型 | ./Seq2Seq.md | 第3章 |
+| 8 | BART | BART | 预训练模型 | ./BART.md | 第5章 |
+| 9 | BERT | BERT | 预训练模型 | ./BERT.md | 第5章 |
+| 10 | GPT | GPT | 预训练模型 | ./GPT.md | 第5章 |
+| 11 | RoBERTa | RoBERTa | 预训练模型 | ./RoBERTa.md | 第5章 |
+| 12 | ALBERT | ALBERT | 预训练模型 | ./ALBERT.md | 第5章 |
+| 13 | XLNet | XLNet | 预训练模型 | ./XLNet.md | 第5章 |
+| 14 | Transformer-XL | Transformer-XL | 预训练模型 | ./Transformer-XL.md | 第5章 |
+| 15 | 视觉Transformer | Vision Transformer (ViT) | 视觉模型 | ./视觉Transformer_ViT.md | 第6章 |
+| 16 | Swin Transformer | Swin Transformer | 视觉模型 | ./Swin_Transformer.md | 第6章 |
+| 17 | DeiT | DeiT | 视觉模型 | ./DeiT.md | 第6章 |
+| 18 | DETR | DETR | 视觉模型 | ./DETR.md | 第6章 |
+| 19 | SE-Net | SE-Net | 注意力模块 | ./SE-Net.md | 第2章 |
+| 20 | CBAM | CBAM | 注意力模块 | ./CBAM.md | 第2章 |
+| 21 | Non-local Networks | Non-local Networks | 注意力模块 | ./Non-local_Networks.md | 第2章 |
+| 22 | BatchNorm与LayerNorm | BatchNorm/LayerNorm | 训练技术 | ./BatchNorm_LayerNorm.md | 第4章 |
+| 23 | Teacher Forcing与Beam Search | Teacher Forcing/Beam Search | 训练/推理技术 | ./Teacher_Forcing_Beam_Search.md | 第4章 |
+| 24 | CLIP | CLIP | 多模态模型 | ./CLIP.md | 第7章 |
+| 25 | MASS | MASS | 预训练模型 | ./MASS.md | 第5章 |
+| 26 | ERNIE | ERNIE | 预训练模型 | ./ERNIE.md | 第5章 |
+| 27 | XLM | XLM | 预训练模型 | ./XLM.md | 第5章 |
+| 28 | UniLM | UniLM | 预训练模型 | ./UniLM.md | 第5章 |
+| 29 | 缩放点积注意力 | Scaled Dot-Product Attention | 注意力机制 | ./缩放点积注意力.md | 第4章 |
+| 30 | 词嵌入 | Word Embedding | NLP基础 | ./词嵌入.md | 第4章 |
+| 31 | 注意力偏向竞争理论 | Biased Competition Theory | 认知科学 | ./注意力偏向竞争理论.md | 第1章 |
+| 32 | 特征整合理论 | Feature Integration Theory | 认知科学 | ./特征整合理论_Feature_Integration_Theory.md | 第1章 |
+| 33 | 视觉显著性检测 | Visual Saliency Detection | 计算机视觉 | ./视觉显著性检测.md | 第2章 |
+| 34 | GPT-2.0 | GPT-2.0 | 预训练模型 | ./GPT-2.0.md | 第5章 |
+| 35 | GPT-3.0 | GPT-3.0 | 预训练模型 | ./GPT-3.0.md | 第5章 |
+| 36 | T5 | T5 | 预训练模型 | ./T5.md | 第5章 |
+| 37 | iGPT | image GPT | 视觉预训练 | ./iGPT.md | 第6章 |
+| 38 | MAE | Masked Autoencoder | 视觉预训练 | ./MAE.md | 第6章 |
+| 39 | BEiT | BEiT | 视觉预训练 | ./BEiT.md | 第6章 |
+| 40 | DALL-E | DALL-E | 多模态生成 | ./DALL-E.md | 第7章 |
+| 41 | DALL-E 2 | DALL-E 2 | 多模态生成 | ./DALL-E_2.md | 第7章 |
+| 42 | Stable Diffusion | Stable Diffusion | 多模态生成 | ./Stable_Diffusion.md | 第7章 |
+| 43 | SAM | Segment Anything Model | 计算机视觉 | ./SAM.md | 第7章 |
+| 44 | MoCo v1/v2/v3 | MoCo | 自监督学习 | ./MoCo.md | 第6章 |
+| 45 | DINO | DINO | 自监督学习 | ./DINO.md | 第6章 |
+| 46 | ViLBERT | ViLBERT | 多模态模型 | ./ViLBERT.md | 第7章 |
+| 47 | LXMERT | LXMERT | 多模态模型 | ./LXMERT.md | 第7章 |
+| 48 | VisualBERT | VisualBERT | 多模态模型 | ./VisualBERT.md | 第7章 |
+| 49 | UNITER | UNITER | 多模态模型 | ./UNITER.md | 第7章 |
+| 50 | ALBEF | ALBEF | 多模态模型 | ./ALBEF.md | 第7章 |
+| 51 | BLIP | BLIP/BLIP-2 | 多模态模型 | ./BLIP.md | 第7章 |
+| 52 | ViLT | ViLT | 多模态模型 | ./ViLT.md | 第7章 |
+| 53 | SCAN | SCAN | 多模态模型 | ./SCAN.md | 第7章 |
+| 54 | AttnGAN | AttnGAN | 生成模型 | ./AttnGAN.md | 第7章 |
+| 55 | VLP | VLP | 多模态模型 | ./VLP.md | 第7章 |
+| 56 | OSCAR | OSCAR | 多模态模型 | ./OSCAR.md | 第7章 |
+| 57 | 布罗德本特过滤器理论 | Broadbent Filter Theory | 认知科学 | ./Broadbent过滤器理论.md | 第1章 |
+| 58 | 奈塞尔两阶段理论 | Neisser Two-Stage Theory | 认知科学 | ./奈塞尔两阶段理论.md | 第1章 |
+| 59 | 邓肯基于物体注意力 | Duncan Object-Based Attention | 认知科学 | ./邓肯基于物体注意力.md | 第1章 |
+| 60 | ITTI视觉显著性模型 | ITTI Model | 视觉显著性 | ./ITTI视觉显著性模型.md | 第2章 |
+| 61 | 贝叶斯意外模型 | Bayesian Surprise | 视觉显著性 | ./贝叶斯意外模型.md | 第2章 |
+| 62 | 循环注意力模型RAM | RAM | CV应用 | ./循环注意力模型RAM.md | 第2章 |
+| 63 | 深度循环注意力模型DRAM | DRAM | CV应用 | ./深度循环注意力模型DRAM.md | 第2章 |
+| 64 | 两级注意力模型TLAM | TLAM | CV应用 | ./两级注意力模型TLAM.md | 第2章 |
+| 65 | 空间变换网络STN | STN | CV应用 | ./空间变换网络STN.md | 第2章 |
+| 66 | Luong全局与局部注意力 | Luong Attention | NLP模型 | ./Luong注意力.md | 第3章 |
+| 67 | 层级注意力网络HAN | HAN | NLP模型 | ./层级注意力网络HAN.md | 第3章 |
+| 68 | 特里斯曼衰减理论 | Treisman Attenuation Theory | 认知科学 | ./特里斯曼衰减理论.md | 第1章 |
+| 69 | 多伊奇后期选择理论 | Deutsch Late Selection Theory | 认知科学 | ./多伊奇后期选择理论.md | 第1章 |
+| 70 | 波斯纳注意定向理论 | Posner Attention Orienting Theory | 认知科学 | ./波斯纳注意定向理论.md | 第1章 |
+| 71 | DeepFix | DeepFix | 视觉显著性 | ./DeepFix.md | 第2章 |
+| 72 | EDN编码器-解码器显著性 | EDN | 视觉显著性 | ./EDN.md | 第2章 |
+| 73 | CAS上下文感知显著性 | CAS | 视觉显著性 | ./CAS显著性模型.md | 第2章 |
+| 74 | 基于流形排序的显著性 | SGMR | 视觉显著性 | ./SGMR.md | 第2章 |
+| 75 | 卡内曼注意力资源理论 | Kahneman Resource Theory | 认知科学 | ./卡内曼注意力资源理论.md | 第1章 |
+| 76 | 诺曼与鲍勃罗多任务注意力理论 | Norman-Bobrow Multi-task Theory | 认知科学 | ./诺曼与鲍勃罗多任务注意力理论.md | 第1章 |
+| 77 | 约翰斯顿多阶段选择理论 | Johnston Multi-stage Selection | 认知科学 | ./约翰斯顿多阶段选择理论.md | 第1章 |
+| 78 | 空间变换模块STM | STM | CV应用 | ./空间变换模块STM.md | 第2章 |
+| 79 | KOCH仿生注意力模型 | KOCH Model | 视觉显著性 | ./KOCH模型.md | 第2章 |
+| 80 | GBVS图视觉显著性 | GBVS | 视觉显著性 | ./GBVS模型.md | 第2章 |
+| 81 | AIM信息最大化注意力 | AIM | 视觉显著性 | ./AIM模型.md | 第2章 |
+| 82 | SR谱残差模型 | SR | 视觉显著性 | ./SR谱残差模型.md | 第2章 |
+| 83 | SUN自然统计量显著性 | SUN | 视觉显著性 | ./SUN模型.md | 第2章 |
+| 84 | IS图像标识模型 | IS | 视觉显著性 | ./IS图像标识模型.md | 第2章 |
+| 85 | SERC区域协方差显著性 | SERC | 视觉显著性 | ./SERC模型.md | 第2章 |
+| 86 | ACP自动与受控加工理论 | ACP Theory | 认知科学 | ./ACP自动与受控加工理论.md | 第1章 |
+| 87 | LDSO学习显著物体检测 | LDSO | 显著物体检测 | ./LDSO模型.md | 第2章 |
+| 88 | FT频率调谐显著性 | FT | 显著物体检测 | ./FT频率调谐模型.md | 第2章 |
+| 89 | SSO两阶段显著性 | SSO | 显著物体检测 | ./SSO模型.md | 第2章 |
+| 90 | HC与RC全局对比度显著性 | HC/RC | 显著物体检测 | ./HC_RC显著性模型.md | 第2章 |
+| 91 | SF显著性滤波 | SF | 显著物体检测 | ./SF显著性滤波模型.md | 第2章 |
+| 92 | HSD层级显著物体检测 | HSD | 显著物体检测 | ./HSD层级显著物体检测.md | 第2章 |
+| 93 | DRFI判别区域特征整合 | DRFI | 显著物体检测 | ./DRFI模型.md | 第2章 |
+| 94 | MDF多尺度深度特征 | MDF | 显著物体检测 | ./MDF模型.md | 第2章 |
+| 95 | SCHED短连接显著性 | SCHED | 显著物体检测 | ./SCHED模型.md | 第2章 |
+| 96 | RA-CNN循环注意力CNN | RA-CNN | 细粒度分类 | ./RA-CNN循环注意力CNN.md | 第2章 |
+| 97 | MA-CNN多注意力CNN | MA-CNN | 细粒度分类 | ./MA-CNN多注意力CNN.md | 第2章 |
+| 98 | DANet双注意力网络 | DANet | 注意力模块 | ./DANet双注意力网络.md | 第2章 |
+| 99 | LSTMN记忆自注意力 | LSTMN | NLP自注意力 | ./LSTMN.md | 第3章 |
+| 100 | SSA自注意力句嵌入 | SSA | NLP自注意力 | ./SSA.md | 第3章 |
+| 101 | T2T-ViT | T2T-ViT | 视觉Transformer | ./T2T-ViT.md | 第6章 |
+| 102 | DeepViT | DeepViT | 视觉Transformer | ./DeepViT.md | 第6章 |
+| 103 | CaiT类注意力Transformer | CaiT | 视觉Transformer | ./CaiT.md | 第6章 |
+| 104 | BoTNet瓶颈Transformer | BoTNet | 视觉Transformer | ./BoTNet.md | 第6章 |
+| 105 | CoAtNet卷积极致Transformer | CoAtNet | 视觉Transformer | ./CoAtNet.md | 第6章 |
+| 106 | 可变形DETR | Deformable DETR | 目标检测 | ./Deformable_DETR_可变形DETR.md | 第6章 |
+| 107 | SegFormer语义分割 | SegFormer | 图像分割 | ./SegFormer_语义分割Transformer.md | 第6章 |
+| 108 | HSD层级显著物体检测 | HSD | 显著物体检测 | ./HSD层级显著物体检测.md | 第2章 |
+| 109 | DRFI判别区域特征整合 | DRFI | 显著物体检测 | ./DRFI模型.md | 第2章 |
+| 110 | MDF多尺度深度特征 | MDF | 显著物体检测 | ./MDF多尺度深度特征.md | 第2章 |
+| 111 | SCHED短连接显著性 | SCHED | 显著物体检测 | ./SCHED模型.md | 第2章 |
+
+---
+
+## 学习路径建议
+
+### 入门阶段（第1-4章）
+
+1. **注意力机制**：理解注意力机制的核心思想
+2. **自注意力机制**：掌握Q、K、V的工作原理
+3. **多头注意力**：学会并行计算多个注意力头
+4. **位置编码**：理解位置信息的注入方式
+5. **Transformer**：掌握完整的Transformer架构
+
+### NLP预训练阶段（第5章）
+
+6. **Seq2Seq**：理解序列到序列的转换框架
+7. **编码器-解码器**：掌握编码-解码的工作流程
+8. **BERT**：学习双向预训练模型
+9. **GPT**：学习单向生成式预训练模型
+10. **RoBERTa**：掌握BERT的强化训练方法
+11. **ALBERT**：理解参数共享的轻量级BERT
+12. **XLNet**：融合自回归和自编码优势
+13. **Transformer-XL**：解决长序列建模问题
+
+### 视觉Transformer阶段（第6章）
+
+14. **视觉Transformer (ViT)**：理解将Transformer应用于图像
+15. **Swin Transformer**：掌握分层窗口注意力
+16. **DeiT**：数据高效的图像Transformer
+
+### 注意力模块（第2章）
+
+17. **SE-Net**：通道注意力机制
+18. **CBAM**：混合注意力模块
+19. **视觉显著性检测**：显著性预测任务
+
+### 理论基础（第1章）
+
+20. **注意力偏向竞争理论**：理解注意力在神经科学层面的机制
+21. **特征整合理论**：理解视觉特征的处理方式
+
+---
+
+## 文档结构规范
+
+每个算法文档都包含以下14个章节：
+
+1. **算法基础认知**：一句话定义、直觉类比、历史背景、算法定位、前置知识
+2. **核心原理**：核心思想、工作流程、关键概念解释
+3. **数学公式与推导**：符号约定、问题形式化、详细推导
+4. **训练过程讲解**：数据预处理、参数初始化、训练过程、超参数表
+5. **应用场景**：典型应用、适用数据特征、不适用场景
+6. **优缺点分析**：优点、缺点、与同类算法对比
+7. **调库实现**：使用PyTorch/scikit-learn的完整可运行代码
+8. **手工代码实现**：使用NumPy从头实现的代码
+9. **可视化与结果理解**：可视化代码和结果解读
+10. **模型评估**：评估指标和实际计算代码
+11. **常见问题与易错点**：数据层面、模型层面、调参层面的问题
+12. **学习总结**：核心思想、关键公式、与前序算法的联系
+13. **练习题与思考题**：基础题、进阶题、开放思考题，含答案
+14. **学习路径建议**：前置算法、平行算法、进阶算法、推荐资源
+
+---
+
+## 使用说明
+
+### 如何学习
+
+1. **按路径学习**：按照上述学习路径建议逐步深入
+2. **理论与实践结合**：每个算法都要运行代码验证
+3. **对比学习**：将相似算法进行对比理解
+
+### 代码环境
+
+- Python 3.9+
+- PyTorch 1.8+
+- NumPy
+- Matplotlib
+
+### 扩展建议
+
+后续可继续补充以下算法：
+- 多模态模型（CLIP、DALL-E、BLIP等）
+- 扩散模型中的注意力应用
+- 大语言模型（ChatGPT、LLaMA等）
+- 强化学习中的注意力机制
+- 线性注意力机制（Performer、Linear Transformers等）
+
+---
+
+## 致谢
+
+本知识库基于傅罡老师的《人工智能注意力机制：体系、模型与算法剖析》整理生成。感谢原书提供了详实的理论分析和丰富的算法实例。
+
+---
+
+*最后更新：2026年4月*
+*生成工具：opencode*
+*知识库版本：v2.0*
