@@ -1,0 +1,103 @@
+## 深度补充：TD学习算法详解！
+
+### TD(λ)的资格迹机制！
+
+资格迹E_t(s,a)记录了每个状态-动作对在过去被访问的"痕迹"，衰减由λ参数控制：
+
+数学定义：E_t(s,a) = γλ E_{t-1}(s,a) + 1(S_t=s, A_t=a)
+
+TD(λ)更新公式：
+Q(s,a) ← Q(s,a) + α δ_t E_t(s,a)
+其中δ_t = r + γ Q(s',a') - Q(s,a) 是TD误差。
+
+λ的影响：
+- λ=0：退化为TD(0)，高偏差低方差
+- λ=1：接近蒙特卡洛，低偏差高方差  
+- λ∈(0,1)：两者之间的权衡。
+
+### n-step TD的控制变种！
+
+n-step TD结合n步回报，平衡单步TD的偏差和多步TD的方差：
+
+数学公式：
+G_t^{(n)} = r_{t+1} + γ r_{t+2} + ... + γ^{n-1} r_{t+n} + γ^n Q(s_{t+n}, a_{t+n})
+
+更新规则：
+Q(s_t,a_t) ← Q(s_t,a_t) + α[G_t^{(n)} - Q(s_t,a_t)]
+
+当n=1时就是TD(0)，当n→∞时接近蒙特卡洛。
+
+### 代码示例：TD(λ)实现！
+
+```python
+class TDLambdaAgent:
+    """TD(λ)实现（状态价值版本）"""
+    def __init__(self, n_states, lambda=0.9, gamma=0.99, lr=0.01):
+        self.V = np.zeros(n_states)
+        self.lambda = lambda
+        self.gamma = gamma
+        self.lr = lr
+    
+    def update(self, trajectory, rewards):
+        """TD(λ)更新，trajectory是[s0, s1, ..., s_T]"""
+        T = len(trajectory)
+        E = np.zeros_like(self.V)  # 资格迹
+        
+        for t in range(T):
+            s_t = trajectory[t]
+            
+            # 计算TD误差
+            if t < T-1:
+                td_target = rewards[t] + gamma * self.V[trajectory[t+1]]
+            else:
+                td_target = rewards[t]  # 终止状态
+            
+            td_error = td_target - self.V[s_t]
+            
+            # 更新资格迹
+            E *= self.gamma * self.lambda
+            E[s_t] += 1.0
+            
+            # 更新所有状态（根据资格迹）
+            self.V += self.lr * td_error * E
+```
+
+### 应用场景扩展！
+
+**1. 机器人导航（实时）**
+- 机器人需要实时更新位置价值，不能等待episode结束
+- TD学习可以每步更新，边走边学
+- 实际案例：扫地机器人路径学习、无人机避障。
+
+**2. 股票交易（高频）**
+- 每笔交易后需要立即更新策略，不能等收盘
+- TD学习使用bootstrap，可以快速适应市场变化
+- 实际案例：高频交易算法、加密货币套利。
+
+**3. 游戏AI（实时策略）**
+- RTS游戏中需要实时决策，不能等一局结束
+- TD学习可以边玩边学，持续优化策略
+- 实际案例：星际争霸AI、文明AI。
+
+### 更多练习题！
+
+**练习3：数学推导**
+问题：证明TD(0)在表格型情况下的更新等价于随机梯度下降在某个损失函数上。
+
+**答案**：
+考虑损失函数 L(V) = E[(R_{t+1} + γ V(S_{t+1}) - V(S_t))^2]
+梯度：∇_V L = -2(R_{t+1} + γ V(S_{t+1}) - V(S_t)) · ∇_V V(S_t)
+由于 V(S_t) 对 V(S_t) 的导数是1，对 V(S_{t+1}) 的导数是0（半梯度，不考虑bootstrap的影响），
+因此 ∇_V L = -2δ_t · 1(S_t) （1(S_t)是one-hot向量）
+SGD更新：V ← V - ½ α ∇_V L = V + α δ_t · 1(S_t)
+这正是TD(0)的更新！
+
+**练习4：λ参数选择**
+问题：在某个具体任务中，如何选择λ？
+
+**答案**：
+- 先用多个λ值（如0, 0.3, 0.5, 0.7, 0.9, 1.0）进行交叉验证
+- 绘制性能vs λ的曲线，选择最优λ
+- 通常：episode短选大λ（接近MC），episode长选小λ（接近TD(0))
+END_TD'
+echo "已创建 deep_supp_td.txt，字符数: $(wc -m deep_supp_td.txt | awk '{print $1}')"

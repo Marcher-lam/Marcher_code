@@ -1,0 +1,57 @@
+## 深度补充：TD学习！
+
+### 更多数学推导！
+
+TD(λ)的资格迹更新可以看作是对过去所有状态的"痕迹衰减更新"。
+
+数学表达：E_t(s,a) = γλ E_{t-1}(s,a) + 1(S_t=s, A_t=a)
+
+TD(λ)更新：Q(s,a) ← Q(s,a) + α δ_t E_t(s,a)
+
+其中δ_t = r + γ Q(s',a') - Q(s,a)是TD误差。
+
+### n-step TD详解！
+
+| 算法 | 更新公式 | 特点 |
+|------|----------|------|
+| TD(0) | V(s_t) ← V(s_t) + α[r_{t+1} + γV(s_{t+1}) - V(s_t)] | 单步，高偏差低方差 |
+| n-step TD | V(s_t) ← V(s_t) + α[G_t^{(n)} - V(s_t)] | n步回报，平衡偏差方差 |
+| TD(λ) | V(s_t) ← V(s_t) + αδ_t E_t(s) | 资格迹，理论最优λ exists |
+
+### 代码示例：TD(λ)实现！
+
+```python
+class TDLambdaAgent:
+    def __init__(self, n_states, lamda=0.9, gamma=0.99, lr=0.01):
+        self.Q = np.zeros((n_states, n_actions))
+        self.lamda = lamda
+        self.gamma = gamma
+        self.lr = lr
+    
+    def update(self, trajectory, rewards):
+        E = np.zeros_like(self.Q)
+        for t, ((s, a), r) in enumerate(zip(trajectory, rewards)):
+            if t < len(trajectory) - 1:
+                s_next, a_next = trajectory[t+1]
+                td_target = r + gamma * self.Q[s_next, a_next]
+            else:
+                td_target = r
+            td_error = td_target - self.Q[s, a]
+            E *= gamma * lamda
+            E[s, a] += 1.0
+            self.Q += lr * td_error * E
+```
+
+### 应用场景详解！
+
+**1. 机器人导航**：实时更新，不能等episode结束
+**2. 股票交易**：高频交易，需要快速适应
+**3. 游戏AI**：实时策略，边玩边学
+
+### 更多练习题！
+
+**练习3**：推导TD(λ)的forward view和backward view等价性。
+
+**练习4**：比较TD(0)、TD(λ)、Monte Carlo的偏差-方差权衡。
+EOF'
+echo "已创建 supp_td.txt，字符数: $(wc -m supp_td.txt | awk '{print $1}')"

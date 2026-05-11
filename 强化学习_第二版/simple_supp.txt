@@ -1,0 +1,43 @@
+## 补充内容：算法深入解析
+
+### 更多数学细节
+
+本算法在强化学习中有其独特的应用场景和理论基础。根据不同的算法类别，数学表达形式有所不同。
+
+对于TD类算法，核心更新公式为：
+Q(s,a) ← Q(s,a) + α[r + γ max_a' Q(s',a') - Q(s,a)]
+
+对于MC类算法，核心公式是回报计算：
+G_t = r_{t+1} + γ r_{t+2} + ... + γ^{T-t} r_T
+
+对于DP类算法，贝尔曼方程为：
+V(s) = max_a Σ P(s'|s,a)[r + γV(s')]
+
+### 代码示例
+
+```python
+# 算法实现示例
+class AlgorithmAgent:
+    def __init__(self, n_states, n_actions):
+        self.Q = np.zeros((n_states, n_actions))
+    
+    def update(self, s, a, r, s_next):
+        td_target = r + 0.99 * np.max(self.Q[s_next])
+        td_error = td_target - self.Q[s, a]
+        self.Q[s, a] += 0.01 * td_error
+```
+
+### 应用场景
+
+本算法适用于多种强化学习场景：
+1. 游戏AI：需要快速决策和策略优化
+2. 机器人控制：连续/离散控制任务
+3. 推荐系统：用户session建模和策略优化
+4. 金融交易：需要适应市场变化的快速更新
+
+### 更多练习题
+
+**练习3**：分析本算法在计算复杂度和样本效率上的权衡。
+
+**练习4**：设计一个实验来比较本算法与同类算法的性能。
+

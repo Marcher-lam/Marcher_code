@@ -1,0 +1,59 @@
+## 补充内容：TD学习详解
+
+### TD(λ)的资格迹机制
+
+资格迹是TD(λ)的核心，它记录了每个状态-动作对在过去被访问的"痕迹"。痕迹的衰减由λ参数控制：
+
+更新规则：E_t(s,a) = γλ E_{t-1}(s,a) + 1(s_t=s, a_t=a)
+
+TD(λ)更新公式：
+Q(s,a) ← Q(s,a) + α δ_t E_t(s,a)
+
+其中δ_t是TD误差。
+
+### n-step TD详解
+
+n-step TD结合n步回报：G_t^{(n)} = r_{t+1} + γ r_{t+2} + ... + γ^{n-1} r_{t+n} + γ^n Q(s_{t+n}, a_{t+n})
+
+更新：Q(s_t,a_t) ← Q(s_t,a_t) + α[G_t^{(n)} - Q(s_t,a_t)]
+
+### 代码示例：TD(λ)实现
+
+```python
+class TDLambdaAgent:
+    def __init__(self, n_states, n_actions, lamda=0.9, gamma=0.99, lr=0.01):
+        self.Q = np.zeros((n_states, n_actions))
+        self.lamda = lamda
+        self.gamma = gamma
+        self.lr = lr
+    
+    def update(self, trajectory, rewards):
+        E = np.zeros_like(self.Q)  # 资格迹
+        
+        for t, (s, a, r) in enumerate(trajectory):
+            if t < len(trajectory) - 1:
+                s_next, a_next = trajectory[t+1]
+                td_target = r + gamma * self.Q[s_next, a_next]
+            else:
+                td_target = r
+            
+            td_error = td_target - self.Q[s, a]
+            
+            # 更新资格迹
+            E *= gamma * self.lamda
+            E[s, a] += 1.0
+            
+            # 更新所有状态-动作对（根据资格迹）
+            self.Q += self.lr * td_error * E
+```
+
+### 应用场景扩展
+
+**游戏AI**：实时策略游戏，需要快速反馈
+**机器人控制**：continuing任务，无法等待episode结束
+**金融交易**：高频交易，需要单步更新
+
+### 更多练习题
+
+**练习3**：推导TD(λ)的forward view和backward view等价性。
+**练习4**：比较TD(0)、TD(λ)、Monte Carlo的偏差-方差权衡。

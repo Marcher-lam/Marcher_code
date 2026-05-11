@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "skills": {
+    "browser-cdp": {
+      "source": "worldwonderer/oh-story-claudecode",
+      "sourceType": "github",
+      "skillPath": "skills/browser-cdp/SKILL.md",
+      "computedHash": "c82d00737e42173a167c0480239f9a52c5ace7241f40ee4ebdff961d84118ce6"
+    },
+    "story-deslop": {
+      "source": "worldwonderer/oh-story-claudecode",
+      "sourceType": "github",
+      "skillPath": "skills/story-deslop/SKILL.md",
+      "computedHash": "70db96ea1e1ed7b074adf136b9ec122500fba6d051effb9c719e3883bfab3ac0"
+    },
+    "story-long-analyze": {
+      "source": "worldwonderer/oh-story-claudecode",
+      "sourceType": "github",
+      "skillPath": "skills/story-long-analyze/SKILL.md",
+      "computedHash": "8e28880647a5a9477a1f80c37d261e033fc59291d064222559ada50f5797734f"
+    },
+    "story-long-scan": {
+      "source": "worldwonderer/oh-story-claudecode",
+      "sourceType": "github",
+      "skillPath": "skills/story-long-scan/SKILL.md",
+      "computedHash": "cba8eeebec0d59e8db15b6a9af7503be2992312847fa9964b3e7217f953d7d9a"
+    },
+    "story-long-write": {
+      "source": "worldwonderer/oh-story-claudecode",
+      "sourceType": "github",
+      "skillPath": "skills/story-long-write/SKILL.md",
+      "computedHash": "63819c36dbe0e56bebc5ca56c5aba54ab87dbbe2131e0648446c29d39a069451"
+    },
+    "story-short-analyze": {
+      "source": "worldwonderer/oh-story-claudecode",
+      "sourceType": "github",
+      "skillPath": "skills/story-short-analyze/SKILL.md",
+      "computedHash": "a470a0ed22c096d2e4721508290d772b238184ab83974ec22d5f4e642fdbb530"
+    },
+    "story-short-scan": {
+      "source": "worldwonderer/oh-story-claudecode",
+      "sourceType": "github",
+      "skillPath": "skills/story-short-scan/SKILL.md",
+      "computedHash": "87c590cdbf6d592d3378c3c7f1e88094640fc6931fa6a50cfcbf13a446b3d939"
+    },
+    "story-short-write": {
+      "source": "worldwonderer/oh-story-claudecode",
+      "sourceType": "github",
+      "skillPath": "skills/story-short-write/SKILL.md",
+      "computedHash": "713b0c90526a16f6a4951291bdf55815f5118cad925f180604bf269795d21664"
+    }
+  }
+}
